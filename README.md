@@ -123,11 +123,10 @@ git clone https://github.com/brenofcunha/Biblio-Talk.git
 cd Biblio-Talk
 ```
 
-O código da API de referência está no diretório `lume_api`. Se ele ainda estiver
-fora deste repositório, entre no diretório onde a API foi salva:
+O backend está no diretório `backend`:
 
-```bash
-cd caminho/para/lume_api
+```powershell
+cd backend
 ```
 
 ### 2. Configurar as variáveis de ambiente
@@ -226,8 +225,9 @@ curl "http://localhost:3000/api/v1/books/search?q=torto%20arado"
 
 ## Inicialização da interface
 
-Os arquivos anexados (`App.tsx`, `main.tsx`, `index.css` e `vite-env.d.ts`)
-devem ser copiados para um projeto React + TypeScript criado com Vite.
+Os arquivos da interface estão em `frontend` (`App.tsx`, `main.tsx`,
+`index.css` e `vite-env.d.ts`). Eles devem ser colocados em um projeto React +
+TypeScript criado com Vite.
 
 Exemplo:
 
