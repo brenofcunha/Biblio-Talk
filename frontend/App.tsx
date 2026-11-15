@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { clearToken, createReadingLog, getAllUserShelves, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, register, saveToken, searchBooks, type Book, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
+import { clearToken, createReadingLog, getAllUserShelves, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, logout, register, saveToken, searchBooks, type Book, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
 
 type Screen = 'dashboard' | 'feed' | 'detail' | 'profile' | 'list' | 'diary' | 'shelves'
 
@@ -49,6 +49,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     arrow: <path d="m9 18 6-6-6-6" />,
     check: <path d="m5 12 4 4L19 6" />,
     pages: <><path d="M6 3h10l3 3v15H6z" /><path d="M16 3v4h4M9 12h6M9 16h6" /></>,
+    refresh: <><path d="M20 11a8 8 0 0 0-14.9-3M4 5v4h4" /><path d="M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4" /></>,
   }
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
@@ -213,12 +214,13 @@ function Dashboard({ user, navigate, popularBooks, openLog }: { user: User; navi
   </main>
 }
 
-function Feed({ navigate, items, loading, error, onRetry, onLoadMore, hasMore, mode, onModeChange }: { navigate: (s: Screen) => void; items: FeedItem[]; loading: boolean; error: string; onRetry: () => void; onLoadMore: () => void; hasMore: boolean; mode: 'following' | 'global' | 'reviews'; onModeChange: (mode: 'following' | 'global' | 'reviews') => void }) {
+function Feed({ navigate, items, loading, error, onRetry, onRefresh, onLoadMore, hasMore, mode, onModeChange }: { navigate: (s: Screen) => void; items: FeedItem[]; loading: boolean; error: string; onRetry: () => void; onRefresh: () => void; onLoadMore: () => void; hasMore: boolean; mode: 'following' | 'global' | 'reviews'; onModeChange: (mode: 'following' | 'global' | 'reviews') => void }) {
   return <main className="page feed-layout">
     <section className="feed-column">
-      <div className="feed-intro"><div><p className="eyebrow">Seu diário social</p><h1>Veja o que sua rede anda lendo.</h1><p>Atualizado diretamente pela API.</p></div></div>
+      <div className="feed-intro"><div><p className="eyebrow">Seu diário social</p><h1>Veja o que sua rede anda lendo.</h1><p>Atualizado diretamente pela API.</p></div><button className="button secondary compact" onClick={onRefresh} disabled={loading}><Icon name="refresh" /> {loading ? 'Atualizando...' : 'Atualizar'}</button></div>
       <div className="filter-row"><button className={mode === 'following' ? 'active' : ''} onClick={() => onModeChange('following')}>Sua rede</button><button className={mode === 'global' ? 'active' : ''} onClick={() => onModeChange('global')}>Atividade global</button><button className={mode === 'reviews' ? 'active' : ''} onClick={() => onModeChange('reviews')}>Resenhas</button></div>
-      {loading && <section className="diary-empty"><p>Carregando o feed...</p></section>}
+      {loading && !items.length && <section className="feed-skeletons" aria-label="Carregando feed">{[1, 2, 3].map(index => <div className="feed-skeleton" key={index}><span className="skeleton-avatar" /><div><i className="skeleton-line short" /><i className="skeleton-line" /><i className="skeleton-line medium" /><div className="skeleton-book" /></div></div>)}</section>}
+      {loading && items.length > 0 && <p className="feed-refreshing" role="status">Atualizando o feed...</p>}
       {error && <section className="diary-empty"><p role="alert">{error}</p><button className="button primary" onClick={onRetry}>Tentar novamente</button></section>}
       {!loading && !error && items.length === 0 && <section className="diary-empty"><h2>O feed está vazio</h2><p>Siga leitores ou registre uma leitura para começar.</p></section>}
       {!loading && !error && items.map(item => <FeedCard key={item.id} item={item} navigate={navigate} />)}
@@ -457,16 +459,29 @@ export default function App() {
     } catch (error) {
       setSearchState({ results: [], loading: false, error: error instanceof Error ? error.message : 'Falha ao buscar livros.' })
     }
+
+  }
+
+  async function handleLogout() {
+    try {
+      await logout()
+    } catch (error) {
+      console.error('Não foi possível revogar a sessão no servidor.', error)
+    } finally {
+      clearToken()
+      setUser(null)
+      setSearchState(null)
+    }
   }
 
   if (authLoading) return <main className="page" style={{ paddingTop: 96 }}><p>Carregando sua sessão...</p></main>
   if (!user) return <AuthScreen onAuthenticated={result => setUser(result.user)} />
 
   return <div className="app">
-    <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} onSearch={handleSearch} onLogout={() => { clearToken(); setUser(null); setSearchState(null) }} />
+    <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} onSearch={handleSearch} onLogout={() => { void handleLogout() }} />
     {searchState ? <SearchResults {...searchState} close={() => setSearchState(null)} /> : screen === 'dashboard' && <Dashboard user={user} navigate={navigate} popularBooks={popularBooks} openLog={() => setLogOpen(true)} />}
     {libraryError && !searchState && <p className="page form-error" role="alert">{libraryError}</p>}
-    {!searchState && screen === 'feed' && <Feed navigate={navigate} items={feedItems} loading={feedLoading} error={feedError} onRetry={() => loadFeed()} onLoadMore={() => loadFeed('following', true)} hasMore={Boolean(feedCursor)} mode={feedMode} onModeChange={changeFeedMode} />}
+    {!searchState && screen === 'feed' && <Feed navigate={navigate} items={feedItems} loading={feedLoading} error={feedError} onRetry={() => loadFeed()} onRefresh={() => loadFeed()} onLoadMore={() => loadFeed('following', true)} hasMore={Boolean(feedCursor)} mode={feedMode} onModeChange={changeFeedMode} />}
     {!searchState && screen === 'detail' && <Detail navigate={navigate} openLog={() => setLogOpen(true)} />}
     {!searchState && screen === 'profile' && <Profile user={profile ?? user} logs={logs} stats={profileStats} navigate={navigate} />}
     {!searchState && screen === 'list' && <ListPage navigate={navigate} lists={lists} />}

@@ -1,5 +1,14 @@
 const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 const TOKEN_KEY = 'biblio-talk-token'
+const LEGACY_TOKEN_KEY = 'biblio-talk-token'
+
+function decodeTokenPayload(token: string) {
+  const encoded = token.split('.')[1]
+  if (!encoded) throw new Error('Token JWT inválido')
+  const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+  return JSON.parse(atob(padded)) as { exp?: number }
+}
 
 export type User = {
   id: string
@@ -70,7 +79,22 @@ type APIResponse<T> = {
 export type AuthResult = { user: User; token: string }
 
 function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  const token = sessionStorage.getItem(TOKEN_KEY)
+  if (!token) {
+    localStorage.removeItem(LEGACY_TOKEN_KEY)
+    return null
+  }
+  try {
+    const payload = decodeTokenPayload(token)
+    if (payload.exp && payload.exp * 1000 <= Date.now()) {
+      clearToken()
+      return null
+    }
+  } catch {
+    clearToken()
+    return null
+  }
+  return token
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -81,6 +105,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_URL}${path}`, { ...init, headers })
   const body = await response.json() as APIResponse<T>
+  if (response.status === 401) clearToken()
   if (!response.ok || !body.success) {
     throw new Error(body.message ?? body.error?.details ?? 'Não foi possível concluir a operação.')
   }
@@ -88,15 +113,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export function saveToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token)
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(LEGACY_TOKEN_KEY)
 }
 
 export function hasToken() {
   return Boolean(getToken())
+}
+
+export function logout() {
+  return request<null>('/api/v1/auth/logout', { method: 'POST' })
 }
 
 export function login(email: string, password: string) {

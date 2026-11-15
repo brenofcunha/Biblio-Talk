@@ -39,12 +39,13 @@ modelos de autenticação simultaneamente.
 - **Etapa 2 — concluída:** cliente HTTP, `VITE_API_URL`, JWT, login/cadastro,
   estados de carregamento/erro/vazio, busca, catálogo, perfil, estatísticas,
   listas, estantes, diário e registro de leitura estão integrados ao backend Go.
-- **Etapa 3 — parcialmente concluída:** feed autenticado, filtros, tratamento
-  de erro com tentativa novamente e paginação por cursor estão integrados.
-  Skeleton e atualização manual ainda estão pendentes.
-- **Etapa 4 — parcialmente concluída:** cadastro/login usam a API Go, o JWT é
-  enviado ao middleware existente e as respostas de erro são padronizadas.
-  Revogação e armazenamento seguro do token ainda precisam ser revisados.
+- **Etapa 3 — concluída:** feed autenticado, filtros, tratamento de erro com
+  tentativa novamente, skeleton, atualização manual e paginação por cursor estão
+  integrados.
+- **Etapa 4 — concluída para o MVP:** cadastro/login usam a API Go, o JWT é
+  validado com expiração, pode ser revogado pelo logout, é removido após
+  respostas 401 e fica apenas no `sessionStorage` do navegador. As respostas
+  de erro são padronizadas.
 
 ## Etapas de desenvolvimento
 
@@ -93,10 +94,10 @@ A API já disponibiliza:
 Implementação prevista:
 
 - [x] Solicitar o feed após a autenticação.
-- [ ] Exibir skeleton durante o carregamento.
+- [x] Exibir skeleton durante o carregamento.
 - [x] Tratar erros de rede e permitir nova tentativa.
 - [x] Implementar “carregar mais” usando o cursor retornado.
-- [ ] Implementar atualização manual do feed.
+- [x] Implementar atualização manual do feed.
 - [ ] Avaliar polling, WebSocket ou SSE somente se houver necessidade de tempo
       real.
 
@@ -110,7 +111,7 @@ Estratégia recomendada para o MVP:
 - [x] Manter cadastro e login na API Go.
 - [x] Manter JWT próprio.
 - [x] Validar o token pelo middleware existente.
-- [ ] Revisar expiração, revogação e armazenamento seguro no frontend.
+- [x] Revisar expiração, revogação e armazenamento seguro no frontend.
 - [x] Padronizar respostas de erro de autenticação.
 
 Após o MVP, avaliar Supabase Auth como uma migração separada. Não misturar JWT

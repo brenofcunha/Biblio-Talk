@@ -53,6 +53,10 @@ versão Plataforma Social de Diário de Livros 1.0, com navegação entre:
 O frontend já está conectado à API Go para autenticação, busca de livros,
 catálogo inicial, feed social, paginação por cursor, perfil, estatísticas,
 listas, estantes, diário e registro de leituras.
+O feed também possui skeleton de carregamento, filtros, tentativa novamente e
+atualização manual.
+O logout revoga o JWT no backend; tokens expirados ou rejeitados são removidos
+automaticamente e a sessão do navegador usa `sessionStorage`.
 
 ## Arquitetura da API
 

@@ -107,6 +107,17 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 	return utils.Success(c, fiber.StatusOK, map[string]interface{}{"user": u, "token": token}, "Login realizado com sucesso")
 }
 
+func (h *Handler) Logout(c *fiber.Ctx) error {
+	header := c.Get("Authorization")
+	token := header[len("Bearer "):]
+	claims, err := utils.ParseToken(h.Cfg.JWTSecret, token)
+	if err != nil || claims.ExpiresAt == nil {
+		return utils.Fail(c, fiber.StatusUnauthorized, "unauthorized", "Token JWT inválido", "faça login novamente")
+	}
+	utils.RevokeToken(token, claims.ExpiresAt.Time)
+	return utils.Success(c, fiber.StatusOK, nil, "Logout realizado com sucesso")
+}
+
 func (h *Handler) Me(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()

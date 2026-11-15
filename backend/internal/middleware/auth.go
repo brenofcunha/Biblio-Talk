@@ -18,6 +18,9 @@ func AuthRequired(jwtSecret string) fiber.Handler {
 		if err != nil {
 			return utils.Fail(c, fiber.StatusUnauthorized, "unauthorized", "Token JWT inválido", err.Error())
 		}
+		if utils.IsTokenRevoked(token) {
+			return utils.Fail(c, fiber.StatusUnauthorized, "unauthorized", "Token JWT revogado", "faça login novamente")
+		}
 		c.Locals("userId", claims.UserID)
 		c.Locals("username", claims.Username)
 		return c.Next()
