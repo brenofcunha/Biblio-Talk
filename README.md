@@ -39,19 +39,20 @@ uma CLI para executá-las manualmente.
 
 ### Interface web
 
-A interface anexada é um protótipo React/TypeScript com estilo visual escuro,
-layout responsivo e navegação entre:
+A interface React/Vite atual mantém o estilo visual escuro e responsivo da
+versão Plataforma Social de Diário de Livros 1.0, com navegação entre:
 
 - feed;
 - detalhe de livro;
 - perfil;
 - listas;
+- estantes;
+- diário;
 - modal de registro de leitura.
 
-No estado atual, a interface usa dados de demonstração definidos no próprio
-`App.tsx` e ainda não está conectada à API. A integração entre as duas camadas
-deve substituir esses dados estáticos por chamadas aos endpoints descritos
-abaixo.
+O frontend já está conectado à API Go para autenticação, busca de livros,
+catálogo inicial, feed social, paginação por cursor, perfil, estatísticas,
+listas, estantes, diário e registro de leituras.
 
 ## Arquitetura da API
 
@@ -110,9 +111,9 @@ Para executar a API localmente, instale:
 - `make` (opcional; os comandos também podem ser executados diretamente com
   `go run`).
 
-Para executar a interface, além dos arquivos React, será necessário um projeto
-Vite com Node.js e npm. O anexo atual não inclui `package.json`; portanto, a
-interface precisa ser colocada em um projeto React/Vite antes de ser iniciada.
+Para executar a interface, instale Node.js 22 ou superior e npm. O projeto
+React/Vite está em `frontend/` e usa os arquivos do protótipo como ponto de
+partida.
 
 ## Inicialização local da API
 
@@ -197,6 +198,28 @@ go run ./cmd/api
 
 A API ficará disponível em `http://localhost:3000`.
 
+## Inicialização local do frontend
+
+Em outro terminal, a partir da raiz do projeto:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env
+npm install
+npm run dev
+```
+
+A interface ficará disponível em `http://localhost:5173`. O frontend usa
+`VITE_API_URL`, envia o JWT no header `Authorization: Bearer` e já integra
+cadastro, login, busca, feed (com cursor), filtros global/resenhas e registro
+de leituras com a API Go.
+
+Para validar o build de produção:
+
+```powershell
+npm run build
+```
+
 ### 6. Validar a instalação
 
 Teste o health check:
@@ -249,10 +272,9 @@ npm run dev
 A interface ficará disponível, normalmente, em
 `http://localhost:5173`. Essa origem já está liberada pelo CORS padrão da API.
 
-> A interface anexada é um protótipo visual. O botão de registro, os livros,
-> usuários, avaliações e navegação usam estado local e dados fixos. Para
-> transformá-la em uma aplicação completa, será necessário adicionar um cliente
-> HTTP, autenticação JWT e os estados de carregamento/erro para consumir a API.
+> A interface mantém o layout visual do protótipo, mas o fluxo principal agora
+> consome a API Go. O backend deve estar em execução antes de usar o feed ou
+> registrar leituras; configure `VITE_API_URL` em `frontend/.env`.
 
 ## Desenvolvimento
 

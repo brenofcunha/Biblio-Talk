@@ -10,10 +10,10 @@ leitores, com frontend React, API em Go, PostgreSQL e publicação em nuvem.
 | Área | Situação |
 | --- | --- |
 | API | Implementada em Go/Fiber, com PostgreSQL, JWT, migrações SQL e endpoints de usuários, livros, diário, estantes, listas e feed. |
-| Feed | API implementada com paginação por cursor. O carregamento assíncrono ainda precisa ser integrado ao frontend. |
+| Feed | API implementada com paginação por cursor e carregamento assíncrono integrado ao frontend; atualização manual e skeleton ainda faltam. |
 | Banco | PostgreSQL local disponível via Docker Compose. |
 | Supabase | Pode ser usado como PostgreSQL remoto via `DATABASE_URL`; Supabase Auth ainda não está integrado. |
-| Frontend | Protótipo React/TypeScript com dados estáticos e sem integração com a API. |
+| Frontend | React/Vite integrado à API Go para autenticação, busca, catálogo, feed, perfil, estatísticas, listas, estantes, diário e registro de leitura. |
 | Deploy | Ainda não há configuração para Vercel, Railway, CI/CD ou provisionamento de produção. |
 | Testes | `go test ./...` executa, mas ainda faltam testes automatizados de comportamento e integração. |
 | Estrutura | A API de referência está em `C:\Users\Breno\Downloads\lume_api`, fora do repositório principal. |
@@ -32,15 +32,29 @@ O Supabase será usado inicialmente como banco PostgreSQL. A migração para
 Supabase Auth deve ser considerada somente após o MVP, para evitar manter dois
 modelos de autenticação simultaneamente.
 
+## Status da auditoria das etapas 1–4
+
+- **Etapa 1 — concluída:** estrutura `backend/` e `frontend/`, projeto React/Vite,
+  arquivos de ambiente/ignore e documentação básica estão presentes.
+- **Etapa 2 — concluída:** cliente HTTP, `VITE_API_URL`, JWT, login/cadastro,
+  estados de carregamento/erro/vazio, busca, catálogo, perfil, estatísticas,
+  listas, estantes, diário e registro de leitura estão integrados ao backend Go.
+- **Etapa 3 — parcialmente concluída:** feed autenticado, filtros, tratamento
+  de erro com tentativa novamente e paginação por cursor estão integrados.
+  Skeleton e atualização manual ainda estão pendentes.
+- **Etapa 4 — parcialmente concluída:** cadastro/login usam a API Go, o JWT é
+  enviado ao middleware existente e as respostas de erro são padronizadas.
+  Revogação e armazenamento seguro do token ainda precisam ser revisados.
+
 ## Etapas de desenvolvimento
 
 ### 1. Consolidar a estrutura do projeto
 
-- [ ] Mover ou copiar a API para dentro do repositório principal.
-- [ ] Criar a estrutura `backend/` e `frontend/`.
-- [ ] Criar o projeto React/Vite com `package.json`.
-- [ ] Adicionar `.gitignore` para `.env`, artefatos de build e dependências.
-- [ ] Atualizar o README com os comandos da nova estrutura.
+- [x] Mover ou copiar a API para dentro do repositório principal.
+- [x] Criar a estrutura `backend/` e `frontend/`.
+- [x] Criar o projeto React/Vite com `package.json`.
+- [x] Adicionar `.gitignore` para `.env`, artefatos de build e dependências.
+- [x] Atualizar o README com os comandos da nova estrutura.
 
 Estrutura esperada:
 
@@ -59,13 +73,13 @@ Biblio-Talk/
 
 ### 2. Integrar o frontend com a API
 
-- [ ] Criar cliente HTTP centralizado.
-- [ ] Configurar `VITE_API_URL`.
-- [ ] Implementar armazenamento e envio do JWT.
-- [ ] Criar telas de login e cadastro.
-- [ ] Adicionar estados de carregamento, erro e conteúdo vazio.
-- [ ] Integrar livros, perfis, listas, estantes e diário.
-- [ ] Substituir os dados fixos do protótipo por respostas da API.
+- [x] Criar cliente HTTP centralizado.
+- [x] Configurar `VITE_API_URL`.
+- [x] Implementar armazenamento e envio do JWT.
+- [x] Criar telas de login e cadastro.
+- [x] Adicionar estados de carregamento, erro e conteúdo vazio.
+- [x] Integrar livros, perfis, listas, estantes e diário.
+- [x] Substituir os dados fixos das áreas integradas por respostas da API.
 
 ### 3. Implementar o carregamento assíncrono do feed
 
@@ -78,10 +92,10 @@ A API já disponibiliza:
 
 Implementação prevista:
 
-- [ ] Solicitar o feed após a autenticação.
+- [x] Solicitar o feed após a autenticação.
 - [ ] Exibir skeleton durante o carregamento.
-- [ ] Tratar erros de rede e permitir nova tentativa.
-- [ ] Implementar “carregar mais” usando o cursor retornado.
+- [x] Tratar erros de rede e permitir nova tentativa.
+- [x] Implementar “carregar mais” usando o cursor retornado.
 - [ ] Implementar atualização manual do feed.
 - [ ] Avaliar polling, WebSocket ou SSE somente se houver necessidade de tempo
       real.
@@ -93,11 +107,11 @@ ser usado para atrasar a resposta de leitura do feed.
 
 Estratégia recomendada para o MVP:
 
-- [ ] Manter cadastro e login na API Go.
-- [ ] Manter JWT próprio.
-- [ ] Validar o token pelo middleware existente.
+- [x] Manter cadastro e login na API Go.
+- [x] Manter JWT próprio.
+- [x] Validar o token pelo middleware existente.
 - [ ] Revisar expiração, revogação e armazenamento seguro no frontend.
-- [ ] Padronizar respostas de erro de autenticação.
+- [x] Padronizar respostas de erro de autenticação.
 
 Após o MVP, avaliar Supabase Auth como uma migração separada. Não misturar JWT
 próprio e Supabase Auth na mesma etapa.

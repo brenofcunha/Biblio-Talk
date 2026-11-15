@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { clearToken, createReadingLog, getAllUserShelves, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, register, saveToken, searchBooks, type Book, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
 
-type Screen = 'feed' | 'detail' | 'profile' | 'list'
+type Screen = 'dashboard' | 'feed' | 'detail' | 'profile' | 'list' | 'diary' | 'shelves'
 
 const covers = [
   'https://images.unsplash.com/photo-1789938725934-0b97b0bfd365?auto=format&fit=crop&w=600&q=85',
@@ -52,44 +53,93 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
 
+function AuthScreen({ onAuthenticated }: { onAuthenticated: (result: { user: User; token: string }) => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const result = mode === 'login'
+        ? await login(email, password)
+        : await register(username, email, password)
+      saveToken(result.token)
+      onAuthenticated(result)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Não foi possível autenticar.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <main className="auth-page">
+    <section className="auth-visual">
+      <button className="brand large" type="button"><span className="brand-mark"><span /></span><span>Lume</span></button>
+      <div><p className="eyebrow">Sua história como leitor</p><h1>Todo livro deixa uma marca.</h1><p>Guarde suas leituras, descubra novas histórias e encontre pessoas que sentem os livros como você.</p></div>
+      <blockquote>“A leitura é uma forma de estar em muitos lugares sem deixar de estar em si.”<span>— Ana Martins Marques</span></blockquote>
+    </section>
+    <section className="auth-panel"><div className="auth-box"><p className="eyebrow">{mode === 'login' ? 'Bem-vindo de volta' : 'Comece seu diário'}</p><h2>{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</h2><p>{mode === 'login' ? 'Seu diário e suas próximas leituras estão esperando.' : 'É gratuito. Você só precisa de um minuto.'}</p>
+      <form className="auth-form" onSubmit={submit}>
+        {mode === 'register' && <label><span>Nome de usuário</span><input required value={username} onChange={event => setUsername(event.target.value)} /></label>}
+        <label><span>E-mail</span><input required type="email" value={email} onChange={event => setEmail(event.target.value)} /></label>
+        <label><span>Senha</span><input required minLength={8} type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="primary-button wide" disabled={loading}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar no Lume' : 'Criar minha conta'}</button>
+      </form>
+      <p className="auth-switch">{mode === 'login' ? 'Ainda não tem uma conta?' : 'Já faz parte do Lume?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>{mode === 'login' ? 'Cadastre-se' : 'Entrar'}</button></p>
+    </div></section>
+  </main>
+}
+
 function Avatar({ user = users[0], small = false, onClick }: { user?: typeof users[0]; small?: boolean; onClick?: () => void }) {
   return <button className={`avatar ${user.tone} ${small ? 'avatar-sm' : ''}`} onClick={onClick} aria-label={`Ver perfil de ${user.name}`}>{user.initials}</button>
 }
 
 function Brand({ onClick }: { onClick: () => void }) {
-  return <button className="brand" onClick={onClick} aria-label="Ir para o feed"><span className="brand-mark"><span /></span><span>Lume</span></button>
+  return <button className="brand" onClick={onClick} aria-label="Ir para o início"><span className="brand-mark"><span /></span><span>Lume</span></button>
 }
 
-function Header({ screen, navigate, openLog }: { screen: Screen; navigate: (s: Screen) => void; openLog: () => void }) {
+function Header({ screen, navigate, openLog, onSearch, onLogout }: { screen: Screen; navigate: (s: Screen) => void; openLog: () => void; onSearch: (query: string) => void; onLogout: () => void }) {
+  const [query, setQuery] = useState('')
   return <header className="topbar">
     <div className="topbar-inner">
       <Brand onClick={() => navigate('feed')} />
-      <div className="search"><Icon name="search" /><input aria-label="Busca universal" placeholder="Busque livros, autores ou leitores" /></div>
+      <form className="search" onSubmit={event => { event.preventDefault(); if (query.trim()) onSearch(query.trim()) }}><Icon name="search" /><input aria-label="Busca universal" placeholder="Busque livros, autores ou leitores" value={query} onChange={event => setQuery(event.target.value)} /></form>
       <nav className="main-nav" aria-label="Navegação principal">
-        <button className={screen === 'feed' ? 'active' : ''} onClick={() => navigate('feed')}>Feed</button>
+        <button className={screen === 'dashboard' ? 'active' : ''} onClick={() => navigate('dashboard')}>Feed</button>
+        <button className={screen === 'feed' ? 'active' : ''} onClick={() => navigate('feed')}>Comunidade</button>
+        <button className={screen === 'shelves' ? 'active' : ''} onClick={() => navigate('shelves')}>Estantes</button>
         <button className={screen === 'list' ? 'active' : ''} onClick={() => navigate('list')}>Listas</button>
-        <button onClick={() => navigate('feed')}>Explorar</button>
+        <button className={screen === 'diary' ? 'active' : ''} onClick={() => navigate('diary')}>Diário</button>
+        <button onClick={() => navigate('dashboard')}>Explorar</button>
       </nav>
       <button className="button primary compact desktop-log" onClick={openLog}><Icon name="plus" /> Registrar</button>
       <Avatar small onClick={() => navigate('profile')} />
+      <button className="icon-button" onClick={onLogout} aria-label="Sair">Sair</button>
     </div>
   </header>
 }
 
 function MobileNav({ screen, navigate, openLog }: { screen: Screen; navigate: (s: Screen) => void; openLog: () => void }) {
   return <nav className="mobile-nav" aria-label="Navegação mobile">
-    <button className={screen === 'feed' ? 'active' : ''} onClick={() => navigate('feed')}><Icon name="home" /><span>Feed</span></button>
-    <button onClick={() => navigate('feed')}><Icon name="compass" /><span>Explorar</span></button>
+    <button className={screen === 'dashboard' ? 'active' : ''} onClick={() => navigate('dashboard')}><Icon name="home" /><span>Feed</span></button>
+    <button className={screen === 'feed' ? 'active' : ''} onClick={() => navigate('feed')}><Icon name="compass" /><span>Comunidade</span></button>
     <button className="mobile-add" onClick={openLog}><Icon name="plus" size={22} /></button>
     <button className={screen === 'list' ? 'active' : ''} onClick={() => navigate('list')}><Icon name="list" /><span>Listas</span></button>
     <button className={screen === 'profile' ? 'active' : ''} onClick={() => navigate('profile')}><Icon name="user" /><span>Perfil</span></button>
   </nav>
 }
 
-function Stars({ value = 4.5, interactive = false }: { value?: number; interactive?: boolean }) {
+function Stars({ value = 4.5, interactive = false, onChange }: { value?: number; interactive?: boolean; onChange?: (value: number) => void }) {
   const [rating, setRating] = useState(value)
   return <div className={`stars ${interactive ? 'stars-interactive' : ''}`} aria-label={`${rating} de 5 estrelas`}>
-    {[1, 2, 3, 4, 5].map(n => <button key={n} type="button" onClick={() => interactive && setRating(n)} tabIndex={interactive ? 0 : -1} aria-label={`${n} estrelas`}><span className={n <= rating ? 'filled' : ''}>★</span></button>)}
+    {[1, 2, 3, 4, 5].map(n => <button key={n} type="button" onClick={() => { if (interactive) { setRating(n); onChange?.(n) } }} tabIndex={interactive ? 0 : -1} aria-label={`${n} estrelas`}><span className={n <= rating ? 'filled' : ''}>★</span></button>)}
     {interactive && <strong>{rating.toFixed(1)}</strong>}
   </div>
 }
@@ -106,12 +156,12 @@ function BookCover({ book = books[0], index, onClick, large = false }: { book?: 
   </div>
 }
 
-function FeedCard({ index, navigate }: { index: number; navigate: (s: Screen) => void }) {
-  const user = users[index % users.length]
-  const book = books[index]
+function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) => void }) {
+  const user = users[Array.from(item.user.username).reduce((sum, char) => sum + char.charCodeAt(0), 0) % users.length]
+  const book = { title: item.book.title, author: item.book.authors?.join(', ') || 'Autor desconhecido', cover: item.book.coverUrl ?? covers[0], rating: item.rating }
   return <article className="feed-card">
     <div className="activity-head">
-      <div className="user-line"><Avatar user={user} small onClick={() => navigate('profile')} /><div><button onClick={() => navigate('profile')}><strong>{user.name}</strong></button><p>terminou uma leitura · {index === 0 ? 'há 2 h' : index === 1 ? 'ontem' : 'terça'}</p></div></div>
+      <div className="user-line"><Avatar user={user} small onClick={() => navigate('profile')} /><div><button onClick={() => navigate('profile')}><strong>@{item.user.username}</strong></button><p>registrou uma leitura · {new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div></div>
       <button className="icon-button" aria-label="Mais opções"><Icon name="more" /></button>
     </div>
     <div className="activity-body">
@@ -119,12 +169,12 @@ function FeedCard({ index, navigate }: { index: number; navigate: (s: Screen) =>
       <div className="review">
         <button className="book-title" onClick={() => navigate('detail')}>{book.title}</button>
         <p className="author">{book.author} · 2024</p>
-        <Stars value={index === 1 ? 4 : 5} />
-        <p className="review-text">{index === 0 ? 'Um livro que não pede licença. A narrativa fala sobre identidade, luto e as marcas que herdamos — com uma delicadeza que corta.' : index === 1 ? 'A terra aqui não é cenário, é personagem. Uma história sobre voz, ancestralidade e tudo o que permanece.' : 'Li devagar para não chegar ao fim. Estranho, inquietante e impossível de esquecer.'}</p>
-        {index === 2 && <span className="spoiler">Resenha contém spoilers</span>}
+        <Stars value={item.rating} />
+        <p className="review-text">{item.reviewText || 'Registrou esta leitura no diário.'}</p>
+        {item.containsSpoilers && <span className="spoiler">Resenha contém spoilers</span>}
       </div>
     </div>
-    <div className="activity-actions"><button><Icon name="heart" /> {28 + index * 13}</button><button><Icon name="comment" /> {4 + index * 2}</button><span>Leitura em {index === 0 ? '6 dias' : '11 dias'}</span></div>
+    <div className="activity-actions"><button><Icon name="heart" /> {item.likesCount}</button><button><Icon name="comment" /> {item.commentsCount ?? 0}</button></div>
   </article>
 }
 
@@ -143,12 +193,36 @@ function Sidebar({ navigate }: { navigate: (s: Screen) => void }) {
   </aside>
 }
 
-function Feed({ navigate }: { navigate: (s: Screen) => void }) {
+function Dashboard({ user, navigate, popularBooks, openLog }: { user: User; navigate: (s: Screen) => void; popularBooks: Book[]; openLog: () => void }) {
+  const catalog = popularBooks.length ? popularBooks : books.map(book => ({ id: book.title, title: book.title, authors: [book.author], coverUrl: book.cover, publishYear: 2020 }))
+  return <main className="page dashboard">
+    <section className="dashboard-main">
+      <div className="welcome-row"><div><p className="eyebrow">Sua vida em livros</p><h1>Boa noite, {user.username}.</h1><p>Continue de onde parou ou encontre sua próxima leitura.</p></div><div className="goal-card"><span>0<small>/24</small></span><div><b>Meta de leitura</b><i><em style={{ width: '0%' }} /></i></div></div></div>
+      <section className="content-block"><div className="section-head"><div><p className="eyebrow">Descobertas</p><h2>Em alta na comunidade</h2></div><button className="text-link" onClick={() => navigate('feed')}>Ver comunidade</button></div>
+        <div className="book-grid featured">{catalog.slice(0, 4).map((book, index) => <article className="book-card" key={book.id}><button className="book-cover" onClick={() => navigate('detail')}><span className="rank">{index + 1}</span><img src={book.coverUrl ?? covers[index]} alt={`Capa de ${book.title}`} /><span className="cover-overlay"><b>Ver livro</b><i>♡</i></span></button><button className="book-card-link" onClick={() => navigate('detail')}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button><small><b>★</b> {book.publishYear ?? '—'}</small></article>)}</div>
+      </section>
+      <section className="content-block" id="catalogo"><div className="section-head"><div><p className="eyebrow">Catálogo</p><h2>Explore todos os livros</h2></div><span>{catalog.length} títulos</span></div>
+        <div className="book-grid">{catalog.map(book => <article className="book-card" key={book.id}><button className="book-cover" onClick={() => navigate('detail')}><img src={book.coverUrl ?? covers[0]} alt={`Capa de ${book.title}`} /></button><button className="book-card-link" onClick={() => navigate('detail')}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button></article>)}</div>
+      </section>
+    </section>
+    <aside className="dashboard-aside">
+      <div className="aside-card profile-mini"><span className="profile-avatar">{user.username.slice(0, 2).toUpperCase()}</span><div><strong>{user.username}</strong><small>@{user.username}</small></div><button onClick={() => navigate('profile')}>Ver perfil</button></div>
+      <div className="aside-card"><div className="aside-title"><h3>Seu diário</h3><button onClick={() => navigate('detail')}>Abrir</button></div><div className="mini-empty"><Icon name="book" /><p>Seu diário começa com uma leitura.</p><button onClick={openLog}>Registrar leitura</button></div></div>
+      <div className="aside-card"><div className="aside-title"><h3>Suas estantes</h3><button onClick={() => navigate('list')}>Gerenciar</button></div>{['Quero ler', 'Lendo', 'Lidos'].map((shelf, index) => <button className="shelf-line" key={shelf}><span><Icon name={index === 2 ? 'check' : 'bookmark'} /></span><b>{shelf}</b><small>0</small></button>)}</div>
+    </aside>
+  </main>
+}
+
+function Feed({ navigate, items, loading, error, onRetry, onLoadMore, hasMore, mode, onModeChange }: { navigate: (s: Screen) => void; items: FeedItem[]; loading: boolean; error: string; onRetry: () => void; onLoadMore: () => void; hasMore: boolean; mode: 'following' | 'global' | 'reviews'; onModeChange: (mode: 'following' | 'global' | 'reviews') => void }) {
   return <main className="page feed-layout">
     <section className="feed-column">
-      <div className="feed-intro"><div><p className="eyebrow">Quinta-feira, 12 de junho</p><h1>Boa noite, Clara.</h1><p>Veja o que sua rede anda lendo.</p></div><div className="reading-goal"><span><strong>24</strong>/36</span><div><p>Meta de leitura</p><div className="progress"><span /></div></div></div></div>
-      <div className="filter-row"><button className="active">Sua rede</button><button>Atividade global</button><button>Resenhas</button></div>
-      {[0, 1, 2].map(i => <FeedCard key={i} index={i} navigate={navigate} />)}
+      <div className="feed-intro"><div><p className="eyebrow">Seu diário social</p><h1>Veja o que sua rede anda lendo.</h1><p>Atualizado diretamente pela API.</p></div></div>
+      <div className="filter-row"><button className={mode === 'following' ? 'active' : ''} onClick={() => onModeChange('following')}>Sua rede</button><button className={mode === 'global' ? 'active' : ''} onClick={() => onModeChange('global')}>Atividade global</button><button className={mode === 'reviews' ? 'active' : ''} onClick={() => onModeChange('reviews')}>Resenhas</button></div>
+      {loading && <section className="diary-empty"><p>Carregando o feed...</p></section>}
+      {error && <section className="diary-empty"><p role="alert">{error}</p><button className="button primary" onClick={onRetry}>Tentar novamente</button></section>}
+      {!loading && !error && items.length === 0 && <section className="diary-empty"><h2>O feed está vazio</h2><p>Siga leitores ou registre uma leitura para começar.</p></section>}
+      {!loading && !error && items.map(item => <FeedCard key={item.id} item={item} navigate={navigate} />)}
+      {!loading && !error && hasMore && <button className="button secondary" onClick={onLoadMore}>Carregar mais</button>}
     </section>
     <Sidebar navigate={navigate} />
   </main>
@@ -195,27 +269,29 @@ function Detail({ navigate, openLog }: { navigate: (s: Screen) => void; openLog:
   </main>
 }
 
-function Profile({ navigate }: { navigate: (s: Screen) => void }) {
+function Profile({ user, logs, stats, navigate }: { user: User; logs: ReadingLog[]; stats?: Record<string, unknown>; navigate: (s: Screen) => void }) {
   const [tab, setTab] = useState('Estatísticas')
   return <main>
     <section className="profile-hero">
       <div className="page profile-head">
         <Avatar user={users[0]} />
-        <div className="profile-copy"><div><h1>Clara Nunes</h1><button className="button secondary compact">Editar perfil</button></div><p className="handle">@claralê · São Paulo, SP</p><p>Leio para encontrar nomes para coisas que já senti. Ficção brasileira, mulheres estranhas e finais que doem.</p><div className="profile-numbers"><span><strong>38</strong> lidos em 2025</span><span><strong>286</strong> livros</span><span><strong>12</strong> listas</span><span><strong>1.8k</strong> seguidores</span></div></div>
+        <div className="profile-copy"><div><h1>{user.username}</h1><button className="button secondary compact">Editar perfil</button></div><p className="handle">@{user.username}</p><p>{user.bio || 'Registre suas leituras e compartilhe suas descobertas com a comunidade.'}</p><div className="profile-numbers"><span><strong>{Number(stats?.booksRead ?? logs.length)}</strong> lidos no ano</span><span><strong>{logs.length}</strong> entradas no diário</span><span><strong>{user.top4BookIds?.length ?? 0}</strong> favoritos</span></div></div>
       </div>
     </section>
     <div className="page profile-page">
       <section className="top-four"><div className="section-title"><div><p className="eyebrow">Estante pessoal</p><h2>Quatro para uma ilha deserta</h2></div><button onClick={() => navigate('list')}>Ver estante <Icon name="arrow" /></button></div><div className="top-four-grid">{books.slice(0, 4).map(b => <BookCover key={b.title} book={b} onClick={() => navigate('detail')} />)}</div></section>
       <nav className="profile-tabs">{['Diário', 'Resenhas', 'Listas', 'Estatísticas'].map(t => <button className={tab === t ? 'active' : ''} key={t} onClick={() => setTab(t)}>{t}</button>)}</nav>
-      {tab === 'Estatísticas' ? <Stats /> : <Diary navigate={navigate} tab={tab} />}
+      {tab === 'Estatísticas' ? <Stats stats={stats} /> : <Diary navigate={navigate} tab={tab} logs={logs} />}
     </div>
   </main>
 }
 
-function Stats() {
+function Stats({ stats }: { stats?: Record<string, unknown> }) {
+  const booksRead = Number(stats?.booksRead ?? 0)
+  const pagesRead = Number(stats?.pagesRead ?? 0)
   return <section className="stats-dashboard">
     <div className="stats-header"><div><p className="eyebrow">Seu ano em livros</p><h2>2025, até agora</h2></div><button className="button secondary compact">2025 <span>⌄</span></button></div>
-    <div className="stat-kpis"><div><Icon name="book" /><span><strong>38</strong><small>livros lidos</small></span><em>+12% vs. 2024</em></div><div><Icon name="pages" /><span><strong>9.482</strong><small>páginas lidas</small></span><em>26 por dia</em></div><div><Icon name="calendar" /><span><strong>21</strong><small>dias em sequência</small></span><em>recorde: 34</em></div></div>
+    <div className="stat-kpis"><div><Icon name="book" /><span><strong>{booksRead}</strong><small>livros lidos</small></span><em>dados da API</em></div><div><Icon name="pages" /><span><strong>{pagesRead.toLocaleString('pt-BR')}</strong><small>páginas lidas</small></span><em>dados da API</em></div><div><Icon name="calendar" /><span><strong>{Number(stats?.currentStreakDays ?? 0)}</strong><small>dias em sequência</small></span><em>dados da API</em></div></div>
     <div className="chart-grid">
       <div className="chart-card"><div className="section-title"><h3>Gêneros favoritos</h3><span>Por livros lidos</span></div><div className="donut-row"><div className="donut"><span><strong>38</strong><small>livros</small></span></div><ul><li><i className="dot green" />Ficção literária <strong>42%</strong></li><li><i className="dot orange" />Romance <strong>27%</strong></li><li><i className="dot blue" />Contos <strong>18%</strong></li><li><i className="dot gray" />Outros <strong>13%</strong></li></ul></div></div>
       <div className="chart-card"><div className="section-title"><h3>Ritmo de leitura</h3><span>Livros por mês</span></div><div className="bar-chart">{[4, 7, 5, 9, 6, 7].map((n, i) => <div key={i}><i><b style={{ height: `${n * 10}%` }} /></i><span>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'][i]}</span></div>)}</div></div>
@@ -224,54 +300,179 @@ function Stats() {
   </section>
 }
 
-function Diary({ navigate, tab }: { navigate: (s: Screen) => void; tab: string }) {
-  return <section className="diary-empty"><Icon name={tab === 'Listas' ? 'list' : 'book'} size={32} /><h2>{tab} de Clara</h2><p>Esta visualização faz parte do protótipo. Explore as estatísticas ou abra um livro.</p><button className="button primary" onClick={() => navigate('detail')}>Explorar livro em destaque</button></section>
+function Diary({ navigate, tab, logs }: { navigate: (s: Screen) => void; tab: string; logs: ReadingLog[] }) {
+  if (!logs.length) return <section className="diary-empty"><Icon name="book" size={32} /><h2>{tab} vazio</h2><p>Registre uma leitura para começar seu diário.</p><button className="button primary" onClick={() => navigate('detail')}>Explorar livro em destaque</button></section>
+  return <section className="diary-list">{logs.slice(0, 10).map(log => <article className="diary-entry" key={log.id}><time>{log.readDate ? new Date(log.readDate).toLocaleDateString('pt-BR') : 'Sem data'}</time><div className="diary-cover"><img src={log.book.coverUrl ?? covers[0]} alt="" /></div><div><h2>{log.book.title}</h2><p>{log.book.authors?.join(', ')}</p><span className="rating">{'★'.repeat(Math.round(log.rating))} <b>{log.rating.toFixed(1)}</b></span>{log.reviewText && <blockquote>{log.reviewText}</blockquote>}</div></article>)}</section>
 }
 
-function ListPage({ navigate }: { navigate: (s: Screen) => void }) {
+function ListPage({ navigate, lists }: { navigate: (s: Screen) => void; lists: ReadingList[] }) {
+  const visibleLists = lists.length ? lists : []
   return <main className="page list-page">
     <section className="list-header">
       <div className="list-art">{books.slice(0, 4).map(b => <img key={b.title} src={b.cover} alt="" />)}</div>
-      <div><p className="eyebrow">Lista editorial · 24 livros</p><h1>Livros para sair de uma ressaca literária</h1><p>Histórias que agarram desde a primeira página — para quando você quer voltar a sentir tudo que uma boa leitura pode provocar.</p><div className="list-owner"><Avatar user={users[2]} small onClick={() => navigate('profile')} /><span>Criada por <button onClick={() => navigate('profile')}>Bia Almeida</button> · atualizada há 3 dias</span></div></div>
+      <div><p className="eyebrow">Suas listas · {visibleLists.length}</p><h1>{visibleLists[0]?.title ?? 'Suas listas de leitura'}</h1><p>{visibleLists[0]?.description ?? 'Crie listas para organizar suas próximas leituras e recomendações.'}</p><div className="list-owner"><Avatar user={users[2]} small onClick={() => navigate('profile')} /><span>Listas carregadas pela API Go</span></div></div>
     </section>
-    <div className="list-toolbar"><div><strong>24 livros</strong><span>Ordenados pela curadoria</span></div><button className="button secondary compact"><Icon name="list" /> Ordenar</button></div>
-    <section className="books-grid">{books.map((b, i) => <div className="grid-book" key={b.title}><BookCover book={b} index={i} onClick={() => navigate('detail')} /><button onClick={() => navigate('detail')}><strong>{b.title}</strong><span>{b.author}</span></button><small><span>★</span> {b.rating} · {12 + i * 4}k leituras</small></div>)}</section>
+    <div className="list-toolbar"><div><strong>{visibleLists.length} listas</strong><span>Conteúdo da sua conta</span></div></div>
+    {!visibleLists.length && <section className="diary-empty"><Icon name="list" size={32} /><h2>Nenhuma lista criada</h2><p>As listas criadas pela API aparecerão aqui.</p></section>}
+    <section className="books-grid">{visibleLists.map(list => <article className="grid-book" key={list.id}><div className="book-cover-wrap"><div className="book-cover"><img src={covers[0]} alt="" /></div></div><strong>{list.title}</strong><span>{list.description || 'Lista de leitura'}</span><small>{list.isPrivate ? 'Privada' : 'Pública'}</small></article>)}</section>
   </main>
 }
 
-function LogModal({ close }: { close: () => void }) {
+function DiaryPage({ logs }: { logs: ReadingLog[] }) {
+  return <main className="page inner-page"><header className="page-title"><div><p className="eyebrow">Histórico de leitura</p><h1>Seu diário</h1><p>Leituras carregadas da API Go.</p></div><div className="diary-kpis"><span><strong>{logs.length}</strong> entradas</span></div></header><Diary navigate={() => undefined} tab="Diário" logs={logs} /></main>
+}
+
+function ShelvesPage({ shelves }: { shelves: ShelfEntry[] }) {
+  return <main className="page inner-page"><header className="page-title"><div><p className="eyebrow">Organização</p><h1>Suas estantes</h1><p>Livros organizados por status na API Go.</p></div></header>{['want_to_read', 'reading', 'read', 'abandoned'].map(status => { const entries = shelves.filter(shelf => shelf.status === status); return <section className="shelf-section" key={status}><p className="eyebrow">{status}</p>{entries.length ? <p>{entries.length} livro(s) nesta estante.</p> : <div className="empty-state"><h3>Estante vazia</h3></div>}</section> })}</main>
+}
+
+function LogModal({ book, close, onSaved }: { book: Book; close: () => void; onSaved: () => void }) {
   const [spoiler, setSpoiler] = useState(false)
   const [liked, setLiked] = useState(false)
-  const [saved, setSaved] = useState(false)
-  if (saved) return <div className="modal-backdrop" onMouseDown={close}><div className="success-modal" onMouseDown={e => e.stopPropagation()}><span><Icon name="check" size={28} /></span><h2>Leitura registrada</h2><p>O Avesso da Pele agora faz parte do seu diário.</p><button className="button primary" onClick={close}>Voltar ao livro</button></div></div>
+  const [rating, setRating] = useState(4)
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [review, setReview] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  async function save() {
+    setSaving(true)
+    setError('')
+    try {
+      await createReadingLog({ bookId: book.id, rating, readDate: date, reviewText: review || undefined, containsSpoilers: spoiler, liked })
+      onSaved()
+      close()
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Não foi possível registrar a leitura.')
+    } finally {
+      setSaving(false)
+    }
+  }
   return <div className="modal-backdrop" onMouseDown={close}>
     <section className="log-modal" role="dialog" aria-modal="true" aria-labelledby="log-title" onMouseDown={e => e.stopPropagation()}>
       <div className="modal-head"><div><p className="eyebrow">Adicionar ao diário</p><h2 id="log-title">Registrar leitura</h2></div><button className="icon-button" onClick={close} aria-label="Fechar"><Icon name="close" /></button></div>
-      <div className="modal-book"><img src={books[0].cover} alt="" /><div><strong>{books[0].title}</strong><span>Jeferson Tenório</span></div></div>
+      <div className="modal-book"><img src={book.coverUrl ?? covers[0]} alt="" /><div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></div></div>
       <div className="form-grid">
-        <label><span>Data de término</span><span className="input-shell"><Icon name="calendar" /><input type="date" defaultValue="2025-06-12" /></span></label>
-        <label><span>Sua avaliação</span><Stars value={4} interactive /></label>
+        <label><span>Data de término</span><span className="input-shell"><Icon name="calendar" /><input type="date" value={date} onChange={event => setDate(event.target.value)} /></span></label>
+        <label><span>Sua avaliação</span><Stars value={rating} interactive onChange={setRating} /></label>
       </div>
       <button className={`like-toggle ${liked ? 'liked' : ''}`} onClick={() => setLiked(!liked)}><Icon name="heart" /><span><strong>Você gostou?</strong><small>Marque como um dos favoritos</small></span><i /></button>
-      <label className="review-field"><span>Sua resenha <small>Markdown suportado</small></span><textarea rows={5} placeholder="O que ficou com você depois desta leitura?" /><small>0 / 4.000</small></label>
+      <label className="review-field"><span>Sua resenha <small>Markdown suportado</small></span><textarea rows={5} maxLength={4000} value={review} onChange={event => setReview(event.target.value)} placeholder="O que ficou com você depois desta leitura?" /><small>{review.length} / 4.000</small></label>
       <div className="tag-field"><span>Tags pessoais</span><div><span>ficção brasileira <button aria-label="Remover tag"><Icon name="close" size={12} /></button></span><input placeholder="+ Adicionar tag" /></div></div>
       <label className="spoiler-toggle"><button type="button" className={spoiler ? 'on' : ''} onClick={() => setSpoiler(!spoiler)}><i /></button><span><strong>Contém spoilers</strong><small>A resenha ficará protegida no feed</small></span></label>
-      <div className="modal-actions"><button className="button ghost" onClick={close}>Cancelar</button><button className="button primary" onClick={() => setSaved(true)}>Salvar no diário</button></div>
+      {error && <p role="alert" style={{ color: '#ff7a45' }}>{error}</p>}
+      <div className="modal-actions"><button className="button ghost" onClick={close}>Cancelar</button><button className="button primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar no diário'}</button></div>
     </section>
   </div>
 }
 
+function SearchResults({ results, loading, error, close }: { results: Book[]; loading: boolean; error: string; close: () => void }) {
+  return <main className="page list-page">
+    <div className="list-toolbar"><div><strong>Resultados da busca</strong><span>{loading ? 'Buscando...' : `${results.length} livro(s) encontrado(s)`}</span></div><button className="button secondary compact" onClick={close}>Voltar</button></div>
+    {error && <p role="alert" style={{ color: '#ff7a45' }}>{error}</p>}
+    {!loading && !error && results.length === 0 && <section className="diary-empty"><Icon name="book" size={32} /><h2>Nenhum livro encontrado</h2><p>Tente buscar por outro título ou autor.</p></section>}
+    <section className="books-grid">{results.map(book => <div className="grid-book" key={book.id}><div className="book-cover-wrap"><div className="book-cover"><img src={book.coverUrl ?? covers[0]} alt={`Capa de ${book.title}`} /></div></div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></div>)}</section>
+  </main>
+}
+
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('feed')
+  const [screen, setScreen] = useState<Screen>('dashboard')
   const [logOpen, setLogOpen] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(hasToken())
+  const [searchState, setSearchState] = useState<{ results: Book[]; loading: boolean; error: string } | null>(null)
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([])
+  const [feedCursor, setFeedCursor] = useState<string>()
+  const [feedMode, setFeedMode] = useState<'following' | 'global' | 'reviews'>('following')
+  const [feedLoading, setFeedLoading] = useState(false)
+  const [feedError, setFeedError] = useState('')
+  const [popularBooks, setPopularBooks] = useState<Book[]>([])
+  const [profile, setProfile] = useState<User | null>(null)
+  const [profileStats, setProfileStats] = useState<Record<string, unknown>>({})
+  const [logs, setLogs] = useState<ReadingLog[]>([])
+  const [shelves, setShelves] = useState<ShelfEntry[]>([])
+  const [lists, setLists] = useState<ReadingList[]>([])
+  const [libraryError, setLibraryError] = useState('')
+
+  useEffect(() => {
+    if (!hasToken()) return
+    getCurrentUser()
+      .then(setUser)
+      .catch(() => clearToken())
+      .finally(() => setAuthLoading(false))
+  }, [])
+
+  async function loadFeed(mode = feedMode, append = false) {
+    setFeedLoading(true)
+    setFeedError('')
+    try {
+      if (mode === 'following') {
+        const page = append && feedCursor ? await getMoreFeed(feedCursor) : await getFeed()
+        setFeedItems(current => append ? [...current, ...page.items] : page.items)
+        setFeedCursor(page.nextCursor || undefined)
+      } else {
+        const items = mode === 'global' ? await getGlobalFeed() : await getReviewFeed()
+        setFeedItems(items)
+        setFeedCursor(undefined)
+      }
+    } catch (error) {
+      setFeedError(error instanceof Error ? error.message : 'Falha ao carregar o feed.')
+    } finally {
+      setFeedLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (user) {
+      loadFeed()
+      getPopularBooks().then(setPopularBooks).catch(() => setPopularBooks([]))
+      setLibraryError('')
+      Promise.all([
+        getProfile(user.username),
+        getUserLogs(user.username),
+        getAllUserShelves(user.username),
+        getMyLists(),
+        getUserStats(user.username),
+      ]).then(([nextProfile, nextLogs, nextShelves, nextLists, nextStats]) => {
+        setProfile(nextProfile)
+        setProfileStats(nextStats)
+        setLogs(nextLogs)
+        setShelves(nextShelves)
+        setLists(nextLists)
+      }).catch(error => {
+        setLibraryError(error instanceof Error ? error.message : 'Falha ao carregar sua biblioteca.')
+      })
+    }
+  }, [user])
+
+  function changeFeedMode(mode: 'following' | 'global' | 'reviews') {
+    setFeedMode(mode)
+    loadFeed(mode)
+  }
+
   const navigate = (next: Screen) => { setScreen(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  async function handleSearch(query: string) {
+    setSearchState({ results: [], loading: true, error: '' })
+    try {
+      setSearchState({ results: await searchBooks(query), loading: false, error: '' })
+    } catch (error) {
+      setSearchState({ results: [], loading: false, error: error instanceof Error ? error.message : 'Falha ao buscar livros.' })
+    }
+  }
+
+  if (authLoading) return <main className="page" style={{ paddingTop: 96 }}><p>Carregando sua sessão...</p></main>
+  if (!user) return <AuthScreen onAuthenticated={result => setUser(result.user)} />
+
   return <div className="app">
-    <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} />
-    {screen === 'feed' && <Feed navigate={navigate} />}
-    {screen === 'detail' && <Detail navigate={navigate} openLog={() => setLogOpen(true)} />}
-    {screen === 'profile' && <Profile navigate={navigate} />}
-    {screen === 'list' && <ListPage navigate={navigate} />}
+    <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} onSearch={handleSearch} onLogout={() => { clearToken(); setUser(null); setSearchState(null) }} />
+    {searchState ? <SearchResults {...searchState} close={() => setSearchState(null)} /> : screen === 'dashboard' && <Dashboard user={user} navigate={navigate} popularBooks={popularBooks} openLog={() => setLogOpen(true)} />}
+    {libraryError && !searchState && <p className="page form-error" role="alert">{libraryError}</p>}
+    {!searchState && screen === 'feed' && <Feed navigate={navigate} items={feedItems} loading={feedLoading} error={feedError} onRetry={() => loadFeed()} onLoadMore={() => loadFeed('following', true)} hasMore={Boolean(feedCursor)} mode={feedMode} onModeChange={changeFeedMode} />}
+    {!searchState && screen === 'detail' && <Detail navigate={navigate} openLog={() => setLogOpen(true)} />}
+    {!searchState && screen === 'profile' && <Profile user={profile ?? user} logs={logs} stats={profileStats} navigate={navigate} />}
+    {!searchState && screen === 'list' && <ListPage navigate={navigate} lists={lists} />}
+    {!searchState && screen === 'diary' && <DiaryPage logs={logs} />}
+    {!searchState && screen === 'shelves' && <ShelvesPage shelves={shelves} />}
     <MobileNav screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} />
-    {logOpen && <LogModal close={() => setLogOpen(false)} />}
+    {logOpen && <LogModal book={popularBooks[0] ?? { id: '', title: books[0].title, authors: [books[0].author], coverUrl: books[0].cover }} close={() => setLogOpen(false)} onSaved={() => loadFeed()} />}
   </div>
 }
