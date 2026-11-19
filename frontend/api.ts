@@ -23,6 +23,7 @@ export type Book = {
   id: string
   title: string
   authors: string[]
+  description?: string | null
   coverUrl?: string | null
   publishYear?: number | null
   publisher?: string | null
@@ -31,10 +32,18 @@ export type Book = {
   genres?: string[]
 }
 
+export type BookDetails = Book & {
+  averageRating?: number
+  ratingsCount?: number
+  histogram?: Record<string, number>
+  reviews?: ReadingLog[]
+}
+
 export type FeedItem = {
   id: string
   createdAt: string
   user: { username: string }
+  bookId?: string
   book: { title: string; authors: string[]; coverUrl?: string | null }
   rating: number
   reviewText?: string | null
@@ -172,7 +181,7 @@ export function getPopularBooks() {
 }
 
 export function getBook(id: string) {
-  return request<Book & { averageRating?: number; ratingsCount?: number; histogram?: Record<string, number> }>(`/api/v1/books/${id}`)
+  return request<BookDetails>(`/api/v1/books/${id}`)
 }
 
 export function getProfile(username: string) {
@@ -188,7 +197,7 @@ export function getUserShelf(username: string, status = 'read') {
 }
 
 export function getAllUserShelves(username: string) {
-  return Promise.all(['want_to_read', 'reading', 'read', 'abandoned'].map(status => getUserShelf(username, status)))
+  return Promise.all(['tbr', 'reading', 'read', 'abandoned'].map(status => getUserShelf(username, status)))
     .then(groups => groups.flat())
 }
 
@@ -230,6 +239,13 @@ export function createReadingList(title: string, description = '', isPrivate = f
   return request<ReadingList>('/api/v1/lists/', {
     method: 'POST',
     body: JSON.stringify({ title, description: description || undefined, isPrivate }),
+  })
+}
+
+export function addBookToList(listId: string, bookId: string, position = 1) {
+  return request<unknown>(`/api/v1/lists/${listId}/items`, {
+    method: 'POST',
+    body: JSON.stringify({ bookId, position }),
   })
 }
 

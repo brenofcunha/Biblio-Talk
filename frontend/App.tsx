@@ -1,35 +1,16 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { clearToken, createReadingLog, getAllUserShelves, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, logout, register, saveToken, searchBooks, type Book, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { addBookToList, clearToken, createReadingList, createReadingLog, getAllUserShelves, getBook, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, logout, register, saveToken, searchBooks, updateShelf, type Book, type BookDetails, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
 
 type Screen = 'dashboard' | 'feed' | 'detail' | 'profile' | 'list' | 'diary' | 'shelves'
 
-const covers = [
-  'https://images.unsplash.com/photo-1789938725934-0b97b0bfd365?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1768229349400-64f2b0da1c3a?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1773751392399-241afcb9fac2?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1773761193222-4ad3b5ac23dc?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1789938725904-553468f362ab?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1768229349416-f551858d993a?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1632516643720-e7f5d7d6ecc9?auto=format&fit=crop&w=600&q=85',
-  'https://images.unsplash.com/photo-1782069243619-ed7c9dd3eb05?auto=format&fit=crop&w=600&q=85',
-]
+type AvatarUser = { name: string; initials: string; tone: 'coral' | 'lime' | 'blue' }
 
-const books = [
-  { title: 'O Avesso da Pele', author: 'Jeferson Tenório', cover: covers[0], rating: 4.7 },
-  { title: 'Torto Arado', author: 'Itamar Vieira Junior', cover: covers[1], rating: 4.4 },
-  { title: 'A Vegetariana', author: 'Han Kang', cover: covers[2], rating: 4.1 },
-  { title: 'Tudo é Rio', author: 'Carla Madeira', cover: covers[3], rating: 4.3 },
-  { title: 'A Cabeça do Santo', author: 'Socorro Acioli', cover: covers[4], rating: 4.2 },
-  { title: 'Pessoas Normais', author: 'Sally Rooney', cover: covers[5], rating: 4.0 },
-  { title: 'Véspera', author: 'Carla Madeira', cover: covers[6], rating: 4.1 },
-  { title: 'A Palavra que Resta', author: 'Stênio Gardel', cover: covers[7], rating: 4.6 },
-]
-
-const users = [
-  { name: 'Clara Nunes', handle: '@claralê', initials: 'CN', tone: 'coral' },
-  { name: 'Miguel Costa', handle: '@miguelc', initials: 'MC', tone: 'lime' },
-  { name: 'Bia Almeida', handle: '@bialmeida', initials: 'BA', tone: 'blue' },
-]
+function avatarFor(name: string): AvatarUser {
+  const initials = name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?'
+  const tones: AvatarUser['tone'][] = ['coral', 'lime', 'blue']
+  const tone = tones[Array.from(name).reduce((sum, char) => sum + char.charCodeAt(0), 0) % tones.length]
+  return { name, initials, tone }
+}
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
@@ -98,7 +79,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (result: { user: Use
   </main>
 }
 
-function Avatar({ user = users[0], small = false, onClick }: { user?: typeof users[0]; small?: boolean; onClick?: () => void }) {
+function Avatar({ user, small = false, onClick }: { user: AvatarUser; small?: boolean; onClick?: () => void }) {
   return <button className={`avatar ${user.tone} ${small ? 'avatar-sm' : ''}`} onClick={onClick} aria-label={`Ver perfil de ${user.name}`}>{user.initials}</button>
 }
 
@@ -108,20 +89,21 @@ function Brand({ onClick }: { onClick: () => void }) {
 
 function Header({ screen, navigate, openLog, onSearch, onLogout }: { screen: Screen; navigate: (s: Screen) => void; openLog: () => void; onSearch: (query: string) => void; onLogout: () => void }) {
   const [query, setQuery] = useState('')
+  const searchInput = useRef<HTMLInputElement>(null)
   return <header className="topbar">
     <div className="topbar-inner">
       <Brand onClick={() => navigate('feed')} />
-      <form className="search" onSubmit={event => { event.preventDefault(); if (query.trim()) onSearch(query.trim()) }}><Icon name="search" /><input aria-label="Busca universal" placeholder="Busque livros, autores ou leitores" value={query} onChange={event => setQuery(event.target.value)} /></form>
+      <form className="search" onSubmit={event => { event.preventDefault(); if (query.trim()) onSearch(query.trim()) }}><Icon name="search" /><input ref={searchInput} aria-label="Busca universal" placeholder="Busque livros ou autores" value={query} onChange={event => setQuery(event.target.value)} /></form>
       <nav className="main-nav" aria-label="Navegação principal">
         <button className={screen === 'dashboard' ? 'active' : ''} onClick={() => navigate('dashboard')}>Feed</button>
         <button className={screen === 'feed' ? 'active' : ''} onClick={() => navigate('feed')}>Comunidade</button>
         <button className={screen === 'shelves' ? 'active' : ''} onClick={() => navigate('shelves')}>Estantes</button>
         <button className={screen === 'list' ? 'active' : ''} onClick={() => navigate('list')}>Listas</button>
         <button className={screen === 'diary' ? 'active' : ''} onClick={() => navigate('diary')}>Diário</button>
-        <button onClick={() => navigate('dashboard')}>Explorar</button>
+        <button onClick={() => { navigate('dashboard'); searchInput.current?.focus() }}>Explorar</button>
       </nav>
       <button className="button primary compact desktop-log" onClick={openLog}><Icon name="plus" /> Registrar</button>
-      <Avatar small onClick={() => navigate('profile')} />
+      <Avatar user={avatarFor('Você')} small onClick={() => navigate('profile')} />
       <button className="icon-button" onClick={onLogout} aria-label="Sair">Sair</button>
     </div>
   </header>
@@ -145,21 +127,22 @@ function Stars({ value = 4.5, interactive = false, onChange }: { value?: number;
   </div>
 }
 
-function BookCover({ book = books[0], index, onClick, large = false }: { book?: typeof books[0]; index?: number; onClick: () => void; large?: boolean }) {
+function BookCover({ book, index, onClick, large = false }: { book: Book; index?: number; onClick: () => void; large?: boolean }) {
+  const author = book.authors?.join(', ') || 'Autor desconhecido'
   return <div className={`book-cover-wrap ${large ? 'cover-large' : ''}`}>
     {index !== undefined && <span className="rank">{index + 1}</span>}
     <button className="book-cover" onClick={onClick} aria-label={`Ver ${book.title}`}>
-      <img src={book.cover} alt={`Capa de ${book.title}`} />
+      {book.coverUrl ? <img src={book.coverUrl} alt={`Capa de ${book.title}`} /> : <span className="cover-placeholder"><Icon name="book" /></span>}
       <span className="cover-shade" />
-      <span className="cover-copy"><small>{book.author}</small><strong>{book.title}</strong></span>
+      <span className="cover-copy"><small>{author}</small><strong>{book.title}</strong></span>
       <span className="quick-actions"><span><Icon name="check" /> Lido</span><Icon name="heart" /></span>
     </button>
   </div>
 }
 
 function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) => void }) {
-  const user = users[Array.from(item.user.username).reduce((sum, char) => sum + char.charCodeAt(0), 0) % users.length]
-  const book = { title: item.book.title, author: item.book.authors?.join(', ') || 'Autor desconhecido', cover: item.book.coverUrl ?? covers[0], rating: item.rating }
+  const user = avatarFor(item.user.username)
+  const book: Book = { id: item.bookId || item.id, title: item.book.title, authors: item.book.authors, coverUrl: item.book.coverUrl }
   return <article className="feed-card">
     <div className="activity-head">
       <div className="user-line"><Avatar user={user} small onClick={() => navigate('profile')} /><div><button onClick={() => navigate('profile')}><strong>@{item.user.username}</strong></button><p>registrou uma leitura · {new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div></div>
@@ -169,7 +152,7 @@ function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) =>
       <BookCover book={book} onClick={() => navigate('detail')} />
       <div className="review">
         <button className="book-title" onClick={() => navigate('detail')}>{book.title}</button>
-        <p className="author">{book.author} · 2024</p>
+        <p className="author">{book.authors?.join(', ') || 'Autor desconhecido'}</p>
         <Stars value={item.rating} />
         <p className="review-text">{item.reviewText || 'Registrou esta leitura no diário.'}</p>
         {item.containsSpoilers && <span className="spoiler">Resenha contém spoilers</span>}
@@ -179,45 +162,64 @@ function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) =>
   </article>
 }
 
-function Sidebar({ navigate }: { navigate: (s: Screen) => void }) {
+function Sidebar({ navigate, popularBooks, onBookSelect }: { navigate: (s: Screen) => void; popularBooks: Book[]; onBookSelect: (book: Book) => void }) {
   return <aside className="sidebar">
     <section className="side-section">
       <div className="section-heading"><h3>Populares esta semana</h3><button onClick={() => navigate('list')}>Ver todos</button></div>
-      {books.slice(0, 3).map((book, i) => <button className="mini-book" key={book.title} onClick={() => navigate('detail')}><span className="mini-rank">0{i + 1}</span><img src={book.cover} alt="" /><span><strong>{book.title}</strong><small>{book.author}</small><em><span>★</span> {book.rating}</em></span></button>)}
+      {popularBooks.slice(0, 3).map((book, i) => <button className="mini-book" key={book.id} onClick={() => onBookSelect(book)}><span className="mini-rank">0{i + 1}</span>{book.coverUrl ? <img src={book.coverUrl} alt="" /> : <span className="mini-cover-placeholder"><Icon name="book" /></span>}<span><strong>{book.title}</strong><small>{book.authors?.join(', ') || 'Autor desconhecido'}</small><em><span>★</span> Dados da API</em></span></button>)}
+      {!popularBooks.length && <p className="empty-copy">Ainda não há leituras suficientes para gerar tendências.</p>}
     </section>
-    <section className="side-section trending">
-      <div className="section-heading"><h3>Listas em alta</h3></div>
-      <button onClick={() => navigate('list')}><span className="list-collage">{books.slice(3, 6).map(b => <img key={b.title} src={b.cover} alt="" />)}</span><span><strong>Livros para sair de uma ressaca literária</strong><small>32 livros · por @bia.lê</small></span></button>
-      <button onClick={() => navigate('list')}><span className="list-collage">{books.slice(5, 8).map(b => <img key={b.title} src={b.cover} alt="" />)}</span><span><strong>Brasil contemporâneo essencial</strong><small>18 livros · por @caiom</small></span></button>
-    </section>
-    <section className="network-card"><div><span className="pulse-dot" /><small>Sua rede esta semana</small></div><strong>74 livros</strong><p>lidos por 38 pessoas que você segue</p></section>
   </aside>
 }
 
-function Dashboard({ user, navigate, popularBooks, openLog }: { user: User; navigate: (s: Screen) => void; popularBooks: Book[]; openLog: () => void }) {
-  const catalog = popularBooks.length ? popularBooks : books.map(book => ({ id: book.title, title: book.title, authors: [book.author], coverUrl: book.cover, publishYear: 2020 }))
+function Dashboard({ user, navigate, popularBooks, featuredBook, openLog, onBookSelect }: { user: User; navigate: (s: Screen) => void; popularBooks: Book[]; featuredBook: Book | null; openLog: () => void; onBookSelect: (book: Book) => void }) {
+  const catalog = popularBooks
   return <main className="page dashboard">
     <section className="dashboard-main">
       <div className="welcome-row"><div><p className="eyebrow">Sua vida em livros</p><h1>Boa noite, {user.username}.</h1><p>Continue de onde parou ou encontre sua próxima leitura.</p></div><div className="goal-card"><span>0<small>/24</small></span><div><b>Meta de leitura</b><i><em style={{ width: '0%' }} /></i></div></div></div>
       <section className="content-block"><div className="section-head"><div><p className="eyebrow">Descobertas</p><h2>Em alta na comunidade</h2></div><button className="text-link" onClick={() => navigate('feed')}>Ver comunidade</button></div>
-        <div className="book-grid featured">{catalog.slice(0, 4).map((book, index) => <article className="book-card" key={book.id}><button className="book-cover" onClick={() => navigate('detail')}><span className="rank">{index + 1}</span><img src={book.coverUrl ?? covers[index]} alt={`Capa de ${book.title}`} /><span className="cover-overlay"><b>Ver livro</b><i>♡</i></span></button><button className="book-card-link" onClick={() => navigate('detail')}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button><small><b>★</b> {book.publishYear ?? '—'}</small></article>)}</div>
+        {catalog.length ? <div className="book-grid featured">{catalog.slice(0, 4).map((book, index) => <article className="book-card" key={book.id}><button className="book-cover" onClick={() => onBookSelect(book)}><span className="rank">{index + 1}</span>{book.coverUrl ? <img src={book.coverUrl} alt={`Capa de ${book.title}`} /> : <span className="cover-placeholder"><Icon name="book" /></span>}<span className="cover-overlay"><b>Ver livro</b><i>♡</i></span></button><button className="book-card-link" onClick={() => onBookSelect(book)}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button><small><b>★</b> {book.publishYear ?? '—'}</small></article>)}</div> : <section className="diary-empty"><h2>Sem livros em alta ainda</h2><p>As tendências aparecerão quando houver leituras reais na comunidade.</p></section>}
       </section>
       <section className="content-block" id="catalogo"><div className="section-head"><div><p className="eyebrow">Catálogo</p><h2>Explore todos os livros</h2></div><span>{catalog.length} títulos</span></div>
-        <div className="book-grid">{catalog.map(book => <article className="book-card" key={book.id}><button className="book-cover" onClick={() => navigate('detail')}><img src={book.coverUrl ?? covers[0]} alt={`Capa de ${book.title}`} /></button><button className="book-card-link" onClick={() => navigate('detail')}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button></article>)}</div>
+        {catalog.length ? <div className="book-grid">{catalog.map(book => <article className="book-card" key={book.id}><BookCover book={book} onClick={() => onBookSelect(book)} /><button className="book-card-link" onClick={() => onBookSelect(book)}><strong>{book.title}</strong><span>{book.authors?.join(', ')}</span></button></article>)}</div> : <p className="empty-copy">Busque um livro para adicioná-lo ao catálogo.</p>}
       </section>
+      {featuredBook && <section className="content-block featured-book-template"><div className="section-head"><div><p className="eyebrow">Em alta</p><h2>{featuredBook.title}</h2></div><button className="text-link" onClick={() => onBookSelect(featuredBook)}>Ver detalhes</button></div><div className="featured-book-copy"><BookCover book={featuredBook} large onClick={() => onBookSelect(featuredBook)} /><div><p className="author">{featuredBook.authors?.join(', ') || 'Autor desconhecido'}</p><p className="review-text">Livro encontrado no catálogo externo e salvo pela API para uso no aplicativo.</p><button className="button primary compact" onClick={openLog}>Registrar leitura</button></div></div></section>}
     </section>
     <aside className="dashboard-aside">
       <div className="aside-card profile-mini"><span className="profile-avatar">{user.username.slice(0, 2).toUpperCase()}</span><div><strong>{user.username}</strong><small>@{user.username}</small></div><button onClick={() => navigate('profile')}>Ver perfil</button></div>
       <div className="aside-card"><div className="aside-title"><h3>Seu diário</h3><button onClick={() => navigate('detail')}>Abrir</button></div><div className="mini-empty"><Icon name="book" /><p>Seu diário começa com uma leitura.</p><button onClick={openLog}>Registrar leitura</button></div></div>
-      <div className="aside-card"><div className="aside-title"><h3>Suas estantes</h3><button onClick={() => navigate('list')}>Gerenciar</button></div>{['Quero ler', 'Lendo', 'Lidos'].map((shelf, index) => <button className="shelf-line" key={shelf}><span><Icon name={index === 2 ? 'check' : 'bookmark'} /></span><b>{shelf}</b><small>0</small></button>)}</div>
+      <div className="aside-card"><div className="aside-title"><h3>Suas estantes</h3><button onClick={() => navigate('shelves')}>Gerenciar</button></div><p className="empty-copy">Os livros das suas estantes aparecerão aqui após o primeiro registro.</p></div>
     </aside>
   </main>
 }
 
-function Feed({ navigate, items, loading, error, onRetry, onRefresh, onLoadMore, hasMore, mode, onModeChange }: { navigate: (s: Screen) => void; items: FeedItem[]; loading: boolean; error: string; onRetry: () => void; onRefresh: () => void; onLoadMore: () => void; hasMore: boolean; mode: 'following' | 'global' | 'reviews'; onModeChange: (mode: 'following' | 'global' | 'reviews') => void }) {
+function Feed({ navigate, items, loading, error, onRetry, onRefresh, onLoadMore, hasMore, mode, onModeChange, popularBooks, onBookSelect }: { navigate: (s: Screen) => void; items: FeedItem[]; loading: boolean; error: string; onRetry: () => void; onRefresh: () => void; onLoadMore: () => void; hasMore: boolean; mode: 'following' | 'global' | 'reviews'; onModeChange: (mode: 'following' | 'global' | 'reviews') => void; popularBooks: Book[]; onBookSelect: (book: Book) => void }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Book[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState('')
+
+  async function search(event: FormEvent) {
+    event.preventDefault()
+    if (!query.trim()) return
+    setSearchLoading(true)
+    setSearchError('')
+    try {
+      setResults(await searchBooks(query.trim()))
+    } catch (requestError) {
+      setResults([])
+      setSearchError(requestError instanceof Error ? requestError.message : 'Falha ao buscar livros.')
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
   return <main className="page feed-layout">
     <section className="feed-column">
       <div className="feed-intro"><div><p className="eyebrow">Seu diário social</p><h1>Veja o que sua rede anda lendo.</h1><p>Atualizado diretamente pela API.</p></div><button className="button secondary compact" onClick={onRefresh} disabled={loading}><Icon name="refresh" /> {loading ? 'Atualizando...' : 'Atualizar'}</button></div>
+      <form className="feed-book-search" onSubmit={search}><Icon name="search" /><input aria-label="Buscar livros no feed" value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar livros ou autores" /><button className="button primary compact" disabled={searchLoading || !query.trim()}>{searchLoading ? 'Buscando...' : 'Buscar'}</button></form>
+      {searchError && <p className="form-error" role="alert">{searchError}</p>}
+      {results.length > 0 && <section className="feed-search-results"><div className="section-title"><h2>Possíveis livros</h2><span>{results.length} resultados da API</span></div><div className="feed-book-grid">{results.map(book => <article className="feed-book-result" key={book.id}><button className="feed-book-cover" onClick={() => onBookSelect(book)}>{book.coverUrl ? <img src={book.coverUrl} alt={`Capa de ${book.title}`} /> : <span className="cover-placeholder"><Icon name="book" /></span>}</button><div><button className="book-title" onClick={() => onBookSelect(book)}>{book.title}</button><p className="author">{book.authors?.join(', ') || 'Autor desconhecido'}</p><p className="feed-book-description">{book.description || 'Descrição não fornecida pela fonte externa.'}</p><button className="text-link" onClick={() => onBookSelect(book)}>Ver detalhes</button></div></article>)}</div></section>}
       <div className="filter-row"><button className={mode === 'following' ? 'active' : ''} onClick={() => onModeChange('following')}>Sua rede</button><button className={mode === 'global' ? 'active' : ''} onClick={() => onModeChange('global')}>Atividade global</button><button className={mode === 'reviews' ? 'active' : ''} onClick={() => onModeChange('reviews')}>Resenhas</button></div>
       {loading && !items.length && <section className="feed-skeletons" aria-label="Carregando feed">{[1, 2, 3].map(index => <div className="feed-skeleton" key={index}><span className="skeleton-avatar" /><div><i className="skeleton-line short" /><i className="skeleton-line" /><i className="skeleton-line medium" /><div className="skeleton-book" /></div></div>)}</section>}
       {loading && items.length > 0 && <p className="feed-refreshing" role="status">Atualizando o feed...</p>}
@@ -226,26 +228,27 @@ function Feed({ navigate, items, loading, error, onRetry, onRefresh, onLoadMore,
       {!loading && !error && items.map(item => <FeedCard key={item.id} item={item} navigate={navigate} />)}
       {!loading && !error && hasMore && <button className="button secondary" onClick={onLoadMore}>Carregar mais</button>}
     </section>
-    <Sidebar navigate={navigate} />
+    <Sidebar navigate={navigate} popularBooks={popularBooks} onBookSelect={onBookSelect} />
   </main>
 }
 
-function Detail({ navigate, openLog }: { navigate: (s: Screen) => void; openLog: () => void }) {
-  const book = books[0]
+function Detail({ book, navigate, openLog }: { book: BookDetails | null; navigate: (s: Screen) => void; openLog: () => void }) {
+  if (!book) return <main className="page diary-empty"><h2>Selecione um livro</h2><p>Use a busca para carregar um livro real da API.</p></main>
+  const author = book.authors?.join(', ') || 'Autor desconhecido'
+  const rating = book.averageRating ?? 0
   return <main>
     <section className="book-hero">
-      <div className="hero-backdrop" style={{ backgroundImage: `url(${book.cover})` }} />
+      <div className="hero-backdrop" style={book.coverUrl ? { backgroundImage: `url(${book.coverUrl})` } : undefined} />
       <div className="page hero-content">
         <BookCover book={book} large onClick={() => {}} />
         <div className="book-meta">
-          <p className="eyebrow">Ficção brasileira · 2020</p>
+          <p className="eyebrow">Dados do catálogo</p>
           <h1>{book.title}</h1>
-          <button className="author-link" onClick={() => navigate('profile')}>por Jeferson Tenório</button>
-          <p className="book-description">Um romance sobre identidade, violência e os laços entre pai e filho. Uma narrativa contundente que atravessa memória, afeto e resistência.</p>
-          <div className="metadata"><span>Companhia das Letras</span><span>192 páginas</span><span>Português</span></div>
+          <p className="author-link">por {author}</p>
+          <p className="book-description">{book.description || 'Descrição não fornecida pela fonte externa.'}</p>
+          <div className="metadata"><span>{book.publisher || 'Editora não informada'}</span><span>{book.pageCount ? `${book.pageCount} páginas` : 'Páginas não informadas'}</span><span>{book.publishYear || 'Ano não informado'}</span></div>
           <div className="book-actions">
             <button className="button primary" onClick={openLog}><Icon name="plus" /> Registrar leitura</button>
-            <button className="button secondary"><Icon name="check" /> Marcar como lido</button>
             <button className="button icon-only" aria-label="Adicionar à lista de desejos"><Icon name="bookmark" /></button>
           </div>
           <div className="quick-rate"><span>Sua nota</span><Stars value={0} interactive /></div>
@@ -255,18 +258,18 @@ function Detail({ navigate, openLog }: { navigate: (s: Screen) => void; openLog:
     <div className="page detail-grid">
       <section>
         <div className="stats-card">
-          <div className="score"><strong>4.7</strong><Stars value={5} /><span>8.492 avaliações</span></div>
+          <div className="score"><strong>{rating.toFixed(1)}</strong><Stars value={rating} /><span>{book.ratingsCount ?? 0} avaliações</span></div>
           <div className="histogram">
-            {[18, 28, 52, 84, 100].map((h, i) => <div key={h}><span>{i + 1}</span><i><b style={{ height: `${h}%` }} /></i></div>)}
+            {[1, 2, 3, 4, 5].map(star => <div key={star}><span>{star}</span><i><b style={{ height: `${Math.min(100, (book.histogram?.[String(star)] ?? 0) * 10)}%` }} /></i></div>)}
           </div>
         </div>
-        <div className="content-section"><div className="section-title"><h2>Sobre o livro</h2></div><p>Depois que o pai é assassinado numa abordagem policial, Pedro retorna à casa onde cresceu, em Porto Alegre. Em busca de respostas, ele refaz os caminhos do pai e recompõe uma história marcada por racismo, afetos e silêncios.</p><button className="text-link">Continuar lendo</button></div>
+        <div className="content-section"><div className="section-title"><h2>Sobre o livro</h2></div><p>Detalhes adicionais serão exibidos quando fornecidos pela API do catálogo.</p></div>
         <div className="content-section">
-          <div className="section-title"><h2>Resenhas da comunidade</h2><button>Mais relevantes</button></div>
-          {[users[1], users[2]].map((user, i) => <article className="community-review" key={user.name}><Avatar user={user} small onClick={() => navigate('profile')} /><div><div><button onClick={() => navigate('profile')}><strong>{user.name}</strong></button><Stars value={i ? 4 : 5} /></div><p>{i ? 'Uma prosa precisa, sem excessos. Terminei querendo conversar com alguém sobre tudo que ficou nas entrelinhas.' : 'Este livro me encontrou num momento muito específico. A voz de Pedro fica com a gente muito depois da última página.'}</p><span><Icon name="heart" /> {i ? 19 : 46} curtidas</span></div></article>)}
+          <div className="section-title"><h2>Resenhas da comunidade</h2></div>
+          {!book.reviews?.length && <p className="empty-copy">Ainda não há resenhas reais para este livro.</p>}
         </div>
       </section>
-      <aside className="detail-aside"><h3>Leitores que você segue</h3><div className="avatar-stack">{users.map(u => <Avatar key={u.name} user={u} small onClick={() => navigate('profile')} />)}<span>+12</span></div><p>15 amigos já leram este livro. A média deles é <strong>4.8</strong>.</p><hr /><h3>Informações</h3><dl><div><dt>Publicado em</dt><dd>2020</dd></div><div><dt>ISBN</dt><dd>978-85-359-3392-9</dd></div><div><dt>Gêneros</dt><dd>Literatura brasileira, Romance</dd></div></dl></aside>
+      <aside className="detail-aside"><h3>Informações</h3><dl><div><dt>Publicado em</dt><dd>{book.publishYear || 'Não informado'}</dd></div><div><dt>ISBN</dt><dd>{book.isbn || 'Não informado'}</dd></div><div><dt>Gêneros</dt><dd>{book.genres?.join(', ') || 'Não informado'}</dd></div></dl></aside>
     </div>
   </main>
 }
@@ -276,12 +279,12 @@ function Profile({ user, logs, stats, navigate }: { user: User; logs: ReadingLog
   return <main>
     <section className="profile-hero">
       <div className="page profile-head">
-        <Avatar user={users[0]} />
+        <Avatar user={avatarFor(user.username)} />
         <div className="profile-copy"><div><h1>{user.username}</h1><button className="button secondary compact">Editar perfil</button></div><p className="handle">@{user.username}</p><p>{user.bio || 'Registre suas leituras e compartilhe suas descobertas com a comunidade.'}</p><div className="profile-numbers"><span><strong>{Number(stats?.booksRead ?? logs.length)}</strong> lidos no ano</span><span><strong>{logs.length}</strong> entradas no diário</span><span><strong>{user.top4BookIds?.length ?? 0}</strong> favoritos</span></div></div>
       </div>
     </section>
     <div className="page profile-page">
-      <section className="top-four"><div className="section-title"><div><p className="eyebrow">Estante pessoal</p><h2>Quatro para uma ilha deserta</h2></div><button onClick={() => navigate('list')}>Ver estante <Icon name="arrow" /></button></div><div className="top-four-grid">{books.slice(0, 4).map(b => <BookCover key={b.title} book={b} onClick={() => navigate('detail')} />)}</div></section>
+      <section className="top-four"><div className="section-title"><div><p className="eyebrow">Estante pessoal</p><h2>Quatro para uma ilha deserta</h2></div><button onClick={() => navigate('shelves')}>Ver estante <Icon name="arrow" /></button></div>{logs.length ? <div className="top-four-grid">{logs.slice(0, 4).map(log => <BookCover key={log.id} book={{ id: log.bookId, ...log.book }} onClick={() => navigate('detail')} />)}</div> : <p className="empty-copy">Sua seleção aparecerá após registrar leituras reais.</p>}</section>
       <nav className="profile-tabs">{['Diário', 'Resenhas', 'Listas', 'Estatísticas'].map(t => <button className={tab === t ? 'active' : ''} key={t} onClick={() => setTab(t)}>{t}</button>)}</nav>
       {tab === 'Estatísticas' ? <Stats stats={stats} /> : <Diary navigate={navigate} tab={tab} logs={logs} />}
     </div>
@@ -291,32 +294,49 @@ function Profile({ user, logs, stats, navigate }: { user: User; logs: ReadingLog
 function Stats({ stats }: { stats?: Record<string, unknown> }) {
   const booksRead = Number(stats?.booksRead ?? 0)
   const pagesRead = Number(stats?.pagesRead ?? 0)
+  const genres = Object.entries((stats?.genresPercent as Record<string, number> | undefined) ?? {})
+  const monthlyBooks = Object.entries((stats?.booksPerMonth as Record<string, number> | undefined) ?? {})
   return <section className="stats-dashboard">
-    <div className="stats-header"><div><p className="eyebrow">Seu ano em livros</p><h2>2025, até agora</h2></div><button className="button secondary compact">2025 <span>⌄</span></button></div>
+    <div className="stats-header"><div><p className="eyebrow">Seu ano em livros</p><h2>{new Date().getFullYear()}, até agora</h2></div></div>
     <div className="stat-kpis"><div><Icon name="book" /><span><strong>{booksRead}</strong><small>livros lidos</small></span><em>dados da API</em></div><div><Icon name="pages" /><span><strong>{pagesRead.toLocaleString('pt-BR')}</strong><small>páginas lidas</small></span><em>dados da API</em></div><div><Icon name="calendar" /><span><strong>{Number(stats?.currentStreakDays ?? 0)}</strong><small>dias em sequência</small></span><em>dados da API</em></div></div>
     <div className="chart-grid">
-      <div className="chart-card"><div className="section-title"><h3>Gêneros favoritos</h3><span>Por livros lidos</span></div><div className="donut-row"><div className="donut"><span><strong>38</strong><small>livros</small></span></div><ul><li><i className="dot green" />Ficção literária <strong>42%</strong></li><li><i className="dot orange" />Romance <strong>27%</strong></li><li><i className="dot blue" />Contos <strong>18%</strong></li><li><i className="dot gray" />Outros <strong>13%</strong></li></ul></div></div>
-      <div className="chart-card"><div className="section-title"><h3>Ritmo de leitura</h3><span>Livros por mês</span></div><div className="bar-chart">{[4, 7, 5, 9, 6, 7].map((n, i) => <div key={i}><i><b style={{ height: `${n * 10}%` }} /></i><span>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'][i]}</span></div>)}</div></div>
+      <div className="chart-card"><div className="section-title"><h3>Gêneros favoritos</h3><span>Por livros lidos</span></div>{genres.length ? <ul>{genres.map(([genre, percent]) => <li key={genre}><i className="dot green" />{genre} <strong>{percent}%</strong></li>)}</ul> : <p className="empty-copy">Sem dados reais de gêneros ainda.</p>}</div>
+      <div className="chart-card"><div className="section-title"><h3>Ritmo de leitura</h3><span>Livros por mês</span></div>{monthlyBooks.length ? <div className="bar-chart">{monthlyBooks.map(([month, count]) => <div key={month}><i><b style={{ height: `${Math.min(100, Number(count) * 10)}%` }} /></i><span>{month}</span></div>)}</div> : <p className="empty-copy">Sem leituras reais para exibir.</p>}</div>
     </div>
-    <div className="author-highlight"><span className="author-monogram">CM</span><div><p className="eyebrow">Autora mais lida</p><h3>Carla Madeira</h3><p>3 livros · 782 páginas</p></div><div className="author-books">{books.slice(3, 6).map(b => <img key={b.title} src={b.cover} alt="" />)}</div></div>
   </section>
 }
 
 function Diary({ navigate, tab, logs }: { navigate: (s: Screen) => void; tab: string; logs: ReadingLog[] }) {
   if (!logs.length) return <section className="diary-empty"><Icon name="book" size={32} /><h2>{tab} vazio</h2><p>Registre uma leitura para começar seu diário.</p><button className="button primary" onClick={() => navigate('detail')}>Explorar livro em destaque</button></section>
-  return <section className="diary-list">{logs.slice(0, 10).map(log => <article className="diary-entry" key={log.id}><time>{log.readDate ? new Date(log.readDate).toLocaleDateString('pt-BR') : 'Sem data'}</time><div className="diary-cover"><img src={log.book.coverUrl ?? covers[0]} alt="" /></div><div><h2>{log.book.title}</h2><p>{log.book.authors?.join(', ')}</p><span className="rating">{'★'.repeat(Math.round(log.rating))} <b>{log.rating.toFixed(1)}</b></span>{log.reviewText && <blockquote>{log.reviewText}</blockquote>}</div></article>)}</section>
+  return <section className="diary-list">{logs.slice(0, 10).map(log => <article className="diary-entry" key={log.id}><time>{log.readDate ? new Date(log.readDate).toLocaleDateString('pt-BR') : 'Sem data'}</time><div className="diary-cover">{log.book.coverUrl ? <img src={log.book.coverUrl} alt="" /> : <Icon name="book" />}</div><div><h2>{log.book.title}</h2><p>{log.book.authors?.join(', ')}</p><span className="rating">{'★'.repeat(Math.round(log.rating))} <b>{log.rating.toFixed(1)}</b></span>{log.reviewText && <blockquote>{log.reviewText}</blockquote>}</div></article>)}</section>
 }
 
-function ListPage({ navigate, lists }: { navigate: (s: Screen) => void; lists: ReadingList[] }) {
+function ListPage({ navigate, lists, onListsChange }: { navigate: (s: Screen) => void; lists: ReadingList[]; onListsChange: () => void }) {
   const visibleLists = lists.length ? lists : []
+  const [title, setTitle] = useState('')
+  const [query, setQuery] = useState('')
+  const [selectedListId, setSelectedListId] = useState(lists[0]?.id ?? '')
+  const [results, setResults] = useState<Book[]>([])
+  const [status, setStatus] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selectedListId && lists.length) setSelectedListId(lists[0].id)
+  }, [lists, selectedListId])
+
   return <main className="page list-page">
     <section className="list-header">
-      <div className="list-art">{books.slice(0, 4).map(b => <img key={b.title} src={b.cover} alt="" />)}</div>
-      <div><p className="eyebrow">Suas listas · {visibleLists.length}</p><h1>{visibleLists[0]?.title ?? 'Suas listas de leitura'}</h1><p>{visibleLists[0]?.description ?? 'Crie listas para organizar suas próximas leituras e recomendações.'}</p><div className="list-owner"><Avatar user={users[2]} small onClick={() => navigate('profile')} /><span>Listas carregadas pela API Go</span></div></div>
+      <div><p className="eyebrow">Suas listas · {visibleLists.length}</p><h1>{visibleLists[0]?.title ?? 'Suas listas de leitura'}</h1><p>{visibleLists[0]?.description ?? 'Crie listas para organizar suas próximas leituras e recomendações.'}</p><div className="list-owner"><Avatar user={avatarFor('Você')} small onClick={() => navigate('profile')} /><span>Listas carregadas pela API Go</span></div></div>
     </section>
-    <div className="list-toolbar"><div><strong>{visibleLists.length} listas</strong><span>Conteúdo da sua conta</span></div></div>
+    <div className="list-toolbar"><div><strong>{visibleLists.length} listas</strong><span>Conteúdo da sua conta</span></div><form className="inline-list-create" onSubmit={async event => { event.preventDefault(); if (!title.trim()) return; setLoading(true); setStatus(''); try { await createReadingList(title.trim()); setTitle(''); onListsChange(); setStatus('Lista criada.') } catch (error) { setStatus(error instanceof Error ? error.message : 'Não foi possível criar a lista.') } finally { setLoading(false) } }}><input aria-label="Nome da lista" value={title} onChange={event => setTitle(event.target.value)} placeholder="Nome da nova lista" /><button className="button primary compact" disabled={loading || !title.trim()}>{loading ? 'Criando...' : 'Criar lista'}</button></form></div>
     {!visibleLists.length && <section className="diary-empty"><Icon name="list" size={32} /><h2>Nenhuma lista criada</h2><p>As listas criadas pela API aparecerão aqui.</p></section>}
-    <section className="books-grid">{visibleLists.map(list => <article className="grid-book" key={list.id}><div className="book-cover-wrap"><div className="book-cover"><img src={covers[0]} alt="" /></div></div><strong>{list.title}</strong><span>{list.description || 'Lista de leitura'}</span><small>{list.isPrivate ? 'Privada' : 'Pública'}</small></article>)}</section>
+    <section className="books-grid">{visibleLists.map(list => <article className="grid-book" key={list.id}><div className="book-cover-wrap"><div className="book-cover"><span className="cover-placeholder"><Icon name="list" /></span></div></div><strong>{list.title}</strong><span>{list.description || 'Lista de leitura'}</span><small>{list.isPrivate ? 'Privada' : 'Pública'}</small></article>)}</section>
+    {visibleLists.length > 0 && <section className="list-book-search">
+      <div className="section-title"><div><p className="eyebrow">Adicionar livros</p><h2>Buscar na API</h2></div></div>
+      <form className="list-search-form" onSubmit={async event => { event.preventDefault(); if (!query.trim()) return; setLoading(true); setStatus(''); try { setResults(await searchBooks(query.trim())) } catch (error) { setStatus(error instanceof Error ? error.message : 'Falha ao buscar livros.') } finally { setLoading(false) } }}><input aria-label="Buscar livro" value={query} onChange={event => setQuery(event.target.value)} placeholder="Título ou autor" /><label><span>Adicionar à lista</span><select value={selectedListId} onChange={event => setSelectedListId(event.target.value)}>{visibleLists.map(list => <option value={list.id} key={list.id}>{list.title}</option>)}</select></label><button className="button secondary compact" disabled={loading || !query.trim()}>{loading ? 'Buscando...' : 'Buscar'}</button></form>
+      {status && <p className="form-error" role="status">{status}</p>}
+      <div className="books-grid">{results.map(book => <article className="grid-book" key={book.id}><div className="book-cover-wrap"><div className="book-cover">{book.coverUrl ? <img src={book.coverUrl} alt={`Capa de ${book.title}`} /> : <span className="cover-placeholder"><Icon name="book" /></span>}</div></div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span><button className="button primary compact" disabled={!selectedListId} onClick={async () => { setLoading(true); setStatus(''); try { await addBookToList(selectedListId, book.id, 1); setStatus(`“${book.title}” adicionado à lista.`); onListsChange() } catch (error) { setStatus(error instanceof Error ? error.message : 'Não foi possível adicionar o livro.') } finally { setLoading(false) } }}>Adicionar</button></article>)}</div>
+    </section>}
   </main>
 }
 
@@ -325,22 +345,55 @@ function DiaryPage({ logs }: { logs: ReadingLog[] }) {
 }
 
 function ShelvesPage({ shelves }: { shelves: ShelfEntry[] }) {
-  return <main className="page inner-page"><header className="page-title"><div><p className="eyebrow">Organização</p><h1>Suas estantes</h1><p>Livros organizados por status na API Go.</p></div></header>{['want_to_read', 'reading', 'read', 'abandoned'].map(status => { const entries = shelves.filter(shelf => shelf.status === status); return <section className="shelf-section" key={status}><p className="eyebrow">{status}</p>{entries.length ? <p>{entries.length} livro(s) nesta estante.</p> : <div className="empty-state"><h3>Estante vazia</h3></div>}</section> })}</main>
+  return <main className="page inner-page"><header className="page-title"><div><p className="eyebrow">Organização</p><h1>Suas estantes</h1><p>Livros organizados por status na API Go.</p></div></header>{[
+    ['tbr', 'Quero ler'],
+    ['reading', 'Lendo'],
+    ['read', 'Lidos'],
+    ['abandoned', 'Abandonados'],
+  ].map(([status, label]) => { const entries = shelves.filter(shelf => shelf.status === status); return <section className="shelf-section" key={status}><p className="eyebrow">{label}</p>{entries.length ? <p>{entries.length} livro(s) nesta estante.</p> : <div className="empty-state"><h3>Estante vazia</h3></div>}</section> })}</main>
 }
 
-function LogModal({ book, close, onSaved }: { book: Book; close: () => void; onSaved: () => void }) {
+function LogModal({ initialBook, lists, close, onSaved }: { initialBook: Book | null; lists: ReadingList[]; close: () => void; onSaved: () => void }) {
+  const [book, setBook] = useState<Book | null>(initialBook)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Book[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
   const [spoiler, setSpoiler] = useState(false)
   const [liked, setLiked] = useState(false)
   const [rating, setRating] = useState(4)
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [review, setReview] = useState('')
+  const [shelfStatus, setShelfStatus] = useState('read')
+  const [listId, setListId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  async function searchBook(event: FormEvent) {
+    event.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    setError('')
+    try {
+      setSearchResults(await searchBooks(searchQuery.trim()))
+    } catch (requestError) {
+      setSearchResults([])
+      setError(requestError instanceof Error ? requestError.message : 'Falha ao buscar livros.')
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
   async function save() {
+    if (!book) {
+      setError('Selecione um livro antes de salvar.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
       await createReadingLog({ bookId: book.id, rating, readDate: date, reviewText: review || undefined, containsSpoilers: spoiler, liked })
+      await updateShelf(book.id, shelfStatus)
+      if (listId) await addBookToList(listId, book.id, 1)
       onSaved()
       close()
     } catch (requestError) {
@@ -352,27 +405,39 @@ function LogModal({ book, close, onSaved }: { book: Book; close: () => void; onS
   return <div className="modal-backdrop" onMouseDown={close}>
     <section className="log-modal" role="dialog" aria-modal="true" aria-labelledby="log-title" onMouseDown={e => e.stopPropagation()}>
       <div className="modal-head"><div><p className="eyebrow">Adicionar ao diário</p><h2 id="log-title">Registrar leitura</h2></div><button className="icon-button" onClick={close} aria-label="Fechar"><Icon name="close" /></button></div>
-      <div className="modal-book"><img src={book.coverUrl ?? covers[0]} alt="" /><div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></div></div>
-      <div className="form-grid">
-        <label><span>Data de término</span><span className="input-shell"><Icon name="calendar" /><input type="date" value={date} onChange={event => setDate(event.target.value)} /></span></label>
-        <label><span>Sua avaliação</span><Stars value={rating} interactive onChange={setRating} /></label>
-      </div>
-      <button className={`like-toggle ${liked ? 'liked' : ''}`} onClick={() => setLiked(!liked)}><Icon name="heart" /><span><strong>Você gostou?</strong><small>Marque como um dos favoritos</small></span><i /></button>
-      <label className="review-field"><span>Sua resenha <small>Markdown suportado</small></span><textarea rows={5} maxLength={4000} value={review} onChange={event => setReview(event.target.value)} placeholder="O que ficou com você depois desta leitura?" /><small>{review.length} / 4.000</small></label>
-      <div className="tag-field"><span>Tags pessoais</span><div><span>ficção brasileira <button aria-label="Remover tag"><Icon name="close" size={12} /></button></span><input placeholder="+ Adicionar tag" /></div></div>
-      <label className="spoiler-toggle"><button type="button" className={spoiler ? 'on' : ''} onClick={() => setSpoiler(!spoiler)}><i /></button><span><strong>Contém spoilers</strong><small>A resenha ficará protegida no feed</small></span></label>
+      {!book ? <div className="log-book-search">
+        <p className="eyebrow">1. Selecione o livro</p>
+        <form className="log-search-form" onSubmit={searchBook}><Icon name="search" /><input aria-label="Buscar livro para registrar" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Título ou autor" /><button className="button primary compact" disabled={searchLoading || !searchQuery.trim()}>{searchLoading ? 'Buscando...' : 'Buscar'}</button></form>
+        <div className="log-search-results">{searchResults.map(result => <button className="log-search-result" key={result.id} onClick={() => setBook(result)}>{result.coverUrl ? <img src={result.coverUrl} alt="" /> : <span className="cover-placeholder"><Icon name="book" /></span>}<span><strong>{result.title}</strong><small>{result.authors?.join(', ') || 'Autor desconhecido'}</small>{result.publishYear && <em>{result.publishYear}</em>}</span></button>)}</div>
+      </div> : <div className="modal-book">{book.coverUrl ? <img src={book.coverUrl} alt="" /> : <Icon name="book" />}<div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></div><button className="text-link" type="button" onClick={() => setBook(null)}>Trocar livro</button></div>}
+      {book && <>
+        <div className="log-section-title"><p className="eyebrow">2. Registro da leitura</p></div>
+        <div className="form-grid">
+          <label><span>Data de término</span><span className="input-shell"><Icon name="calendar" /><input type="date" value={date} onChange={event => setDate(event.target.value)} /></span></label>
+          <label><span>Sua avaliação</span><Stars value={rating} interactive onChange={setRating} /></label>
+        </div>
+        <button className={`like-toggle ${liked ? 'liked' : ''}`} onClick={() => setLiked(!liked)}><Icon name="heart" /><span><strong>Você gostou?</strong><small>Marque como favorito</small></span><i /></button>
+        <div className="log-section-title"><p className="eyebrow">3. Resenha opcional</p></div>
+        <label className="review-field"><span>Sua resenha <small>Markdown suportado</small></span><textarea rows={5} maxLength={4000} value={review} onChange={event => setReview(event.target.value)} placeholder="O que ficou com você depois desta leitura?" /><small>{review.length} / 4.000</small></label>
+        <label className="spoiler-toggle"><button type="button" className={spoiler ? 'on' : ''} onClick={() => setSpoiler(!spoiler)}><i /></button><span><strong>Contém spoilers</strong><small>A resenha ficará protegida no feed</small></span></label>
+        <div className="log-section-title"><p className="eyebrow">4. Organização</p></div>
+        <div className="form-grid organization-grid">
+          <label><span>Estante</span><select value={shelfStatus} onChange={event => setShelfStatus(event.target.value)}><option value="tbr">Quero ler</option><option value="reading">Lendo</option><option value="read">Lido</option><option value="abandoned">Abandonado</option></select></label>
+          <label><span>Adicionar a uma lista</span><select value={listId} onChange={event => setListId(event.target.value)}><option value="">Não adicionar</option>{lists.map(list => <option value={list.id} key={list.id}>{list.title}</option>)}</select></label>
+        </div>
+      </>}
       {error && <p role="alert" style={{ color: '#ff7a45' }}>{error}</p>}
       <div className="modal-actions"><button className="button ghost" onClick={close}>Cancelar</button><button className="button primary" disabled={saving} onClick={save}>{saving ? 'Salvando...' : 'Salvar no diário'}</button></div>
     </section>
   </div>
 }
 
-function SearchResults({ results, loading, error, close }: { results: Book[]; loading: boolean; error: string; close: () => void }) {
+function SearchResults({ results, loading, error, close, onBookSelect }: { results: Book[]; loading: boolean; error: string; close: () => void; onBookSelect: (book: Book) => void }) {
   return <main className="page list-page">
     <div className="list-toolbar"><div><strong>Resultados da busca</strong><span>{loading ? 'Buscando...' : `${results.length} livro(s) encontrado(s)`}</span></div><button className="button secondary compact" onClick={close}>Voltar</button></div>
     {error && <p role="alert" style={{ color: '#ff7a45' }}>{error}</p>}
     {!loading && !error && results.length === 0 && <section className="diary-empty"><Icon name="book" size={32} /><h2>Nenhum livro encontrado</h2><p>Tente buscar por outro título ou autor.</p></section>}
-    <section className="books-grid">{results.map(book => <div className="grid-book" key={book.id}><div className="book-cover-wrap"><div className="book-cover"><img src={book.coverUrl ?? covers[0]} alt={`Capa de ${book.title}`} /></div></div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></div>)}</section>
+    <section className="books-grid">{results.map(book => <button className="grid-book" key={book.id} onClick={() => onBookSelect(book)}><div className="book-cover-wrap"><div className="book-cover">{book.coverUrl ? <img src={book.coverUrl} alt={`Capa de ${book.title}`} /> : <span className="cover-placeholder"><Icon name="book" /></span>}</div></div><strong>{book.title}</strong><span>{book.authors?.join(', ') || 'Autor desconhecido'}</span></button>)}</section>
   </main>
 }
 
@@ -388,6 +453,8 @@ export default function App() {
   const [feedLoading, setFeedLoading] = useState(false)
   const [feedError, setFeedError] = useState('')
   const [popularBooks, setPopularBooks] = useState<Book[]>([])
+  const [featuredBook, setFeaturedBook] = useState<Book | null>(null)
+  const [selectedBook, setSelectedBook] = useState<BookDetails | null>(null)
   const [profile, setProfile] = useState<User | null>(null)
   const [profileStats, setProfileStats] = useState<Record<string, unknown>>({})
   const [logs, setLogs] = useState<ReadingLog[]>([])
@@ -427,6 +494,7 @@ export default function App() {
     if (user) {
       loadFeed()
       getPopularBooks().then(setPopularBooks).catch(() => setPopularBooks([]))
+      searchBooks('Qual e a tua obra').then(results => setFeaturedBook(results.find(book => book.title.toLowerCase().includes('qual e a tua obra')) ?? results[0] ?? null)).catch(() => setFeaturedBook(null))
       setLibraryError('')
       Promise.all([
         getProfile(user.username),
@@ -462,6 +530,17 @@ export default function App() {
 
   }
 
+  async function handleBookSelect(book: Book) {
+    try {
+      setSelectedBook(await getBook(book.id))
+    } catch (error) {
+      setSelectedBook(book)
+      setLibraryError(error instanceof Error ? error.message : 'Falha ao carregar os detalhes do livro.')
+    }
+    setSearchState(null)
+    navigate('detail')
+  }
+
   async function handleLogout() {
     try {
       await logout()
@@ -479,15 +558,15 @@ export default function App() {
 
   return <div className="app">
     <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} onSearch={handleSearch} onLogout={() => { void handleLogout() }} />
-    {searchState ? <SearchResults {...searchState} close={() => setSearchState(null)} /> : screen === 'dashboard' && <Dashboard user={user} navigate={navigate} popularBooks={popularBooks} openLog={() => setLogOpen(true)} />}
+    {searchState ? <SearchResults {...searchState} close={() => setSearchState(null)} onBookSelect={handleBookSelect} /> : screen === 'dashboard' && <Dashboard user={user} navigate={navigate} popularBooks={popularBooks} featuredBook={featuredBook} onBookSelect={handleBookSelect} openLog={() => setLogOpen(true)} />}
     {libraryError && !searchState && <p className="page form-error" role="alert">{libraryError}</p>}
-    {!searchState && screen === 'feed' && <Feed navigate={navigate} items={feedItems} loading={feedLoading} error={feedError} onRetry={() => loadFeed()} onRefresh={() => loadFeed()} onLoadMore={() => loadFeed('following', true)} hasMore={Boolean(feedCursor)} mode={feedMode} onModeChange={changeFeedMode} />}
-    {!searchState && screen === 'detail' && <Detail navigate={navigate} openLog={() => setLogOpen(true)} />}
+    {!searchState && screen === 'feed' && <Feed navigate={navigate} items={feedItems} loading={feedLoading} error={feedError} onRetry={() => loadFeed()} onRefresh={() => loadFeed()} onLoadMore={() => loadFeed('following', true)} hasMore={Boolean(feedCursor)} mode={feedMode} onModeChange={changeFeedMode} popularBooks={popularBooks} onBookSelect={handleBookSelect} />}
+    {!searchState && screen === 'detail' && <Detail book={selectedBook} navigate={navigate} openLog={() => setLogOpen(true)} />}
     {!searchState && screen === 'profile' && <Profile user={profile ?? user} logs={logs} stats={profileStats} navigate={navigate} />}
-    {!searchState && screen === 'list' && <ListPage navigate={navigate} lists={lists} />}
+    {!searchState && screen === 'list' && <ListPage navigate={navigate} lists={lists} onListsChange={async () => { try { setLists(await getMyLists()) } catch (error) { setLibraryError(error instanceof Error ? error.message : 'Falha ao recarregar listas.') } }} />}
     {!searchState && screen === 'diary' && <DiaryPage logs={logs} />}
     {!searchState && screen === 'shelves' && <ShelvesPage shelves={shelves} />}
     <MobileNav screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} />
-    {logOpen && <LogModal book={popularBooks[0] ?? { id: '', title: books[0].title, authors: [books[0].author], coverUrl: books[0].cover }} close={() => setLogOpen(false)} onSaved={() => loadFeed()} />}
+    {logOpen && <LogModal initialBook={(selectedBook as Book | null) || featuredBook || popularBooks[0] || null} lists={lists} close={() => setLogOpen(false)} onSaved={() => { loadFeed(); void getMyLists().then(setLists).catch(() => undefined); void getAllUserShelves(user.username).then(setShelves).catch(() => undefined) }} />}
   </div>
 }
