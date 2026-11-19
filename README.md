@@ -88,7 +88,7 @@ Todas as rotas, exceto `/healthz`, usam o prefixo `/api/v1`.
 | Domínio | Endpoints |
 | --- | --- |
 | Saúde | `GET /healthz` |
-| Autenticação | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Autenticação | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` |
 | Usuários | `GET /users/:username`, `PUT /users/me` |
 | Social | `POST/DELETE /users/:id/follow`, seguidores e seguindo |
 | Livros | `GET /books/search`, `GET /books/:id`, `GET /books/popular` |

@@ -10,7 +10,7 @@ leitores, com frontend React, API em Go, PostgreSQL e publicação em nuvem.
 | Área | Situação |
 | --- | --- |
 | API | Implementada em Go/Fiber, com PostgreSQL, JWT, migrações SQL e endpoints de usuários, livros, diário, estantes, listas e feed. |
-| Feed | API implementada com paginação por cursor e carregamento assíncrono integrado ao frontend; atualização manual e skeleton ainda faltam. |
+| Feed | API implementada com paginação por cursor e carregamento assíncrono integrado ao frontend, incluindo skeleton e atualização manual. |
 | Banco | PostgreSQL local disponível via Docker Compose. |
 | Supabase | Pode ser usado como PostgreSQL remoto via `DATABASE_URL`; Supabase Auth ainda não está integrado. |
 | Frontend | React/Vite integrado à API Go para autenticação, busca, catálogo, feed, perfil, estatísticas, listas, estantes, diário e registro de leitura. |
