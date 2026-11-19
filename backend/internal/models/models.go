@@ -3,28 +3,29 @@ package models
 import "time"
 
 type User struct {
-	ID          string     `json:"id" db:"id"`
-	Username    string     `json:"username" db:"username"`
-	Email       string     `json:"email" db:"email"`
+	ID           string    `json:"id" db:"id"`
+	Username     string    `json:"username" db:"username"`
+	Email        string    `json:"email" db:"email"`
 	PasswordHash string    `json:"-" db:"password_hash"`
-	Bio         *string    `json:"bio" db:"bio"`
-	AvatarURL   *string    `json:"avatarUrl" db:"avatar_url"`
-	Top4BookIDs []string   `json:"top4BookIds" db:"top_4_book_ids"`
-	CreatedAt   time.Time  `json:"createdAt" db:"created_at"`
+	Bio          *string   `json:"bio" db:"bio"`
+	AvatarURL    *string   `json:"avatarUrl" db:"avatar_url"`
+	Top4BookIDs  []string  `json:"top4BookIds" db:"top_4_book_ids"`
+	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
 }
 
 type Book struct {
-	ID           string    `json:"id" db:"id"`
-	ExternalAPIID *string  `json:"externalApiId" db:"external_api_id"`
-	Title        string    `json:"title" db:"title"`
-	Authors      []string  `json:"authors" db:"authors"`
-	ISBN         *string   `json:"isbn" db:"isbn"`
-	Publisher    *string   `json:"publisher" db:"publisher"`
-	PublishYear  *int      `json:"publishYear" db:"publish_year"`
-	PageCount    *int      `json:"pageCount" db:"page_count"`
-	CoverURL     *string   `json:"coverUrl" db:"cover_url"`
-	Genres       []string  `json:"genres" db:"genres"`
-	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
+	ID            string    `json:"id" db:"id"`
+	ExternalAPIID *string   `json:"externalApiId" db:"external_api_id"`
+	Title         string    `json:"title" db:"title"`
+	Authors       []string  `json:"authors" db:"authors"`
+	Description   *string   `json:"description" db:"description"`
+	ISBN          *string   `json:"isbn" db:"isbn"`
+	Publisher     *string   `json:"publisher" db:"publisher"`
+	PublishYear   *int      `json:"publishYear" db:"publish_year"`
+	PageCount     *int      `json:"pageCount" db:"page_count"`
+	CoverURL      *string   `json:"coverUrl" db:"cover_url"`
+	Genres        []string  `json:"genres" db:"genres"`
+	CreatedAt     time.Time `json:"createdAt" db:"created_at"`
 }
 
 type Log struct {
@@ -79,24 +80,24 @@ type Comment struct {
 }
 
 type BookRatingSummary struct {
-	AverageRating float64         `json:"averageRating"`
-	RatingsCount  int             `json:"ratingsCount"`
-	Histogram     map[string]int  `json:"histogram"`
+	AverageRating float64        `json:"averageRating"`
+	RatingsCount  int            `json:"ratingsCount"`
+	Histogram     map[string]int `json:"histogram"`
 }
 
 type YearStats struct {
-	Year              int                `json:"year"`
-	BooksRead         int                `json:"booksRead"`
-	BooksReadDelta    int                `json:"booksReadDelta"`
-	PagesRead         int                `json:"pagesRead"`
-	PagesPerDay       float64            `json:"pagesPerDay"`
-	CurrentStreakDays int                `json:"currentStreakDays"`
-	BestStreakDays    int                `json:"bestStreakDays"`
-	GenresPercent     map[string]float64 `json:"genresPercent"`
-	BooksPerMonth     map[string]int     `json:"booksPerMonth"`
-	MostReadAuthor    string             `json:"mostReadAuthor"`
-	MostReadAuthorBooks int              `json:"mostReadAuthorBooks"`
-	MostReadAuthorPages int              `json:"mostReadAuthorPages"`
-	NetworkWeekBooks  int                `json:"networkWeekBooks"`
-	NetworkWeekPeople int                `json:"networkWeekPeople"`
+	Year                int                `json:"year"`
+	BooksRead           int                `json:"booksRead"`
+	BooksReadDelta      int                `json:"booksReadDelta"`
+	PagesRead           int                `json:"pagesRead"`
+	PagesPerDay         float64            `json:"pagesPerDay"`
+	CurrentStreakDays   int                `json:"currentStreakDays"`
+	BestStreakDays      int                `json:"bestStreakDays"`
+	GenresPercent       map[string]float64 `json:"genresPercent"`
+	BooksPerMonth       map[string]int     `json:"booksPerMonth"`
+	MostReadAuthor      string             `json:"mostReadAuthor"`
+	MostReadAuthorBooks int                `json:"mostReadAuthorBooks"`
+	MostReadAuthorPages int                `json:"mostReadAuthorPages"`
+	NetworkWeekBooks    int                `json:"networkWeekBooks"`
+	NetworkWeekPeople   int                `json:"networkWeekPeople"`
 }

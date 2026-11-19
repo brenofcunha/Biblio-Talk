@@ -65,13 +65,14 @@ func (s *BookService) searchOpenLibrary(ctx context.Context, query string, limit
 	}
 	var payload struct {
 		Docs []struct {
-			Key          string   `json:"key"`
-			Title        string   `json:"title"`
-			AuthorName   []string `json:"author_name"`
-			ISBN         []string `json:"isbn"`
-			Publisher    []string `json:"publisher"`
-			FirstPublish int      `json:"first_publish_year"`
-			CoverID      int      `json:"cover_i"`
+			Key           string   `json:"key"`
+			Title         string   `json:"title"`
+			AuthorName    []string `json:"author_name"`
+			FirstSentence []string `json:"first_sentence"`
+			ISBN          []string `json:"isbn"`
+			Publisher     []string `json:"publisher"`
+			FirstPublish  int      `json:"first_publish_year"`
+			CoverID       int      `json:"cover_i"`
 		} `json:"docs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -79,6 +80,10 @@ func (s *BookService) searchOpenLibrary(ctx context.Context, query string, limit
 	}
 	out := []models.Book{}
 	for _, d := range payload.Docs {
+		var description *string
+		if len(d.FirstSentence) > 0 {
+			description = &d.FirstSentence[0]
+		}
 		var isbn *string
 		if len(d.ISBN) > 0 {
 			isbn = &d.ISBN[0]
@@ -98,7 +103,7 @@ func (s *BookService) searchOpenLibrary(ctx context.Context, query string, limit
 			cover = &cu
 		}
 		ext := d.Key
-		out = append(out, models.Book{ExternalAPIID: &ext, Title: d.Title, Authors: d.AuthorName, ISBN: isbn, Publisher: publisher, PublishYear: year, CoverURL: cover, Genres: []string{}})
+		out = append(out, models.Book{ExternalAPIID: &ext, Title: d.Title, Authors: d.AuthorName, Description: description, ISBN: isbn, Publisher: publisher, PublishYear: year, CoverURL: cover, Genres: []string{}})
 	}
 	return out, nil
 }
@@ -123,6 +128,7 @@ func (s *BookService) searchGoogleBooks(ctx context.Context, query string, limit
 			VolumeInfo struct {
 				Title               string   `json:"title"`
 				Authors             []string `json:"authors"`
+				Description         string   `json:"description"`
 				Publisher           string   `json:"publisher"`
 				PublishedDate       string   `json:"publishedDate"`
 				PageCount           int      `json:"pageCount"`
@@ -142,6 +148,10 @@ func (s *BookService) searchGoogleBooks(ctx context.Context, query string, limit
 	out := []models.Book{}
 	for _, item := range payload.Items {
 		vi := item.VolumeInfo
+		var description *string
+		if strings.TrimSpace(vi.Description) != "" {
+			description = &vi.Description
+		}
 		var year *int
 		if len(vi.PublishedDate) >= 4 {
 			y, _ := strconv.Atoi(vi.PublishedDate[:4])
@@ -167,7 +177,7 @@ func (s *BookService) searchGoogleBooks(ctx context.Context, query string, limit
 			cover = &vi.ImageLinks.Thumbnail
 		}
 		ext := item.ID
-		out = append(out, models.Book{ExternalAPIID: &ext, Title: vi.Title, Authors: vi.Authors, ISBN: isbn, Publisher: publisher, PublishYear: year, PageCount: pageCount, CoverURL: cover, Genres: vi.Categories})
+		out = append(out, models.Book{ExternalAPIID: &ext, Title: vi.Title, Authors: vi.Authors, Description: description, ISBN: isbn, Publisher: publisher, PublishYear: year, PageCount: pageCount, CoverURL: cover, Genres: vi.Categories})
 	}
 	return out, nil
 }

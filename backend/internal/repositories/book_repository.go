@@ -17,7 +17,7 @@ type BookRepository struct {
 func NewBookRepository(db *pgxpool.Pool) *BookRepository { return &BookRepository{DB: db} }
 
 func (r *BookRepository) SearchLocal(ctx context.Context, q string, limit int) ([]models.Book, error) {
-	query := `SELECT id,external_api_id,title,authors,isbn,publisher,publish_year,page_count,cover_url,genres,created_at
+	query := `SELECT id,external_api_id,title,authors,description,isbn,publisher,publish_year,page_count,cover_url,genres,created_at
 	FROM books WHERE title ILIKE $1 OR EXISTS (SELECT 1 FROM unnest(authors) a WHERE a ILIKE $1)
 	ORDER BY created_at DESC LIMIT $2`
 	rows, err := r.DB.Query(ctx, query, "%"+q+"%", limit)
@@ -28,7 +28,7 @@ func (r *BookRepository) SearchLocal(ctx context.Context, q string, limit int) (
 	var out []models.Book
 	for rows.Next() {
 		var b models.Book
-		if err := rows.Scan(&b.ID, &b.ExternalAPIID, &b.Title, &b.Authors, &b.ISBN, &b.Publisher, &b.PublishYear, &b.PageCount, &b.CoverURL, &b.Genres, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ExternalAPIID, &b.Title, &b.Authors, &b.Description, &b.ISBN, &b.Publisher, &b.PublishYear, &b.PageCount, &b.CoverURL, &b.Genres, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -46,22 +46,22 @@ func (r *BookRepository) UpsertByExternalID(ctx context.Context, b models.Book) 
 	if b.Genres == nil {
 		b.Genres = []string{}
 	}
-	q := `INSERT INTO books (id,external_api_id,title,authors,isbn,publisher,publish_year,page_count,cover_url,genres)
-	VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10::text[])
+	q := `INSERT INTO books (id,external_api_id,title,authors,description,isbn,publisher,publish_year,page_count,cover_url,genres)
+	VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10,$11::text[])
 	ON CONFLICT (external_api_id) DO UPDATE
-	SET title=EXCLUDED.title, authors=EXCLUDED.authors, isbn=EXCLUDED.isbn, publisher=EXCLUDED.publisher,
+	SET title=EXCLUDED.title, authors=EXCLUDED.authors, description=EXCLUDED.description, isbn=EXCLUDED.isbn, publisher=EXCLUDED.publisher,
 	publish_year=EXCLUDED.publish_year, page_count=EXCLUDED.page_count, cover_url=EXCLUDED.cover_url, genres=EXCLUDED.genres
-	RETURNING id,external_api_id,title,authors,isbn,publisher,publish_year,page_count,cover_url,genres,created_at`
+	RETURNING id,external_api_id,title,authors,description,isbn,publisher,publish_year,page_count,cover_url,genres,created_at`
 	book := &models.Book{}
-	err := r.DB.QueryRow(ctx, q, b.ID, b.ExternalAPIID, strings.TrimSpace(b.Title), b.Authors, b.ISBN, b.Publisher, b.PublishYear, b.PageCount, b.CoverURL, b.Genres).
-		Scan(&book.ID, &book.ExternalAPIID, &book.Title, &book.Authors, &book.ISBN, &book.Publisher, &book.PublishYear, &book.PageCount, &book.CoverURL, &book.Genres, &book.CreatedAt)
+	err := r.DB.QueryRow(ctx, q, b.ID, b.ExternalAPIID, strings.TrimSpace(b.Title), b.Authors, b.Description, b.ISBN, b.Publisher, b.PublishYear, b.PageCount, b.CoverURL, b.Genres).
+		Scan(&book.ID, &book.ExternalAPIID, &book.Title, &book.Authors, &book.Description, &book.ISBN, &book.Publisher, &book.PublishYear, &book.PageCount, &book.CoverURL, &book.Genres, &book.CreatedAt)
 	return book, err
 }
 
 func (r *BookRepository) GetByID(ctx context.Context, id string) (*models.Book, error) {
 	b := &models.Book{}
-	err := r.DB.QueryRow(ctx, `SELECT id,external_api_id,title,authors,isbn,publisher,publish_year,page_count,cover_url,genres,created_at FROM books WHERE id=$1`, id).
-		Scan(&b.ID, &b.ExternalAPIID, &b.Title, &b.Authors, &b.ISBN, &b.Publisher, &b.PublishYear, &b.PageCount, &b.CoverURL, &b.Genres, &b.CreatedAt)
+	err := r.DB.QueryRow(ctx, `SELECT id,external_api_id,title,authors,description,isbn,publisher,publish_year,page_count,cover_url,genres,created_at FROM books WHERE id=$1`, id).
+		Scan(&b.ID, &b.ExternalAPIID, &b.Title, &b.Authors, &b.Description, &b.ISBN, &b.Publisher, &b.PublishYear, &b.PageCount, &b.CoverURL, &b.Genres, &b.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +114,9 @@ func (r *BookRepository) GetBookDetail(ctx context.Context, id string) (map[stri
 	}
 
 	return map[string]interface{}{
-		"book": book,
-		"summary": map[string]interface{}{"averageRating": avg, "ratingsCount": count, "histogram": hist},
-		"reviews": reviews,
+		"book":      book,
+		"summary":   map[string]interface{}{"averageRating": avg, "ratingsCount": count, "histogram": hist},
+		"reviews":   reviews,
 		"fetchedAt": time.Now(),
 	}, nil
 }
