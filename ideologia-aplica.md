@@ -187,7 +187,6 @@ Uma lista deve permitir:
 - Transformar uma anotação privada em resenha.
 - Pesquisar dentro das próprias notas.
 - Criar tags e categorias pessoais.
-- Exportar em Markdown ou PDF.
 
 ### Registro de leitura
 
