@@ -18,7 +18,7 @@ lume_api/
 ├── cmd/
 │   ├── api/                  # Bootstrap do servidor (config, pool, migrações, worker pool, graceful shutdown)
 │   └── migrate/              # CLI de migrações (make migrate-up / migrate-down)
-├── migrations/               # Migrações SQL versionadas (0001..0008 .up/.down)
+├── migrations/               # Migrações SQL versionadas (0001..0011 .up/.down)
 ├── internal/
 │   ├── config/               # Configuração via variáveis de ambiente (.env)
 │   ├── database/             # pgxpool + runner de migrações (transacional, versionado)
@@ -51,16 +51,18 @@ lume_api/
 
 ## Entidades
 
-`users`, `books`, `logs` (diário/avaliação, rating 0.5–5.0 em passos de 0.5), `shelves` (tbr/reading/read/abandoned), `lists`, `list_items` (ordenação por `position`), `social` (seguidores), `log_likes`, `comments`, `user_year_stats` (cache de estatísticas).
+`users`, `books`, `logs` (diário/avaliação, rating 0.5–5.0 em passos de 0.5), `reading_sessions`/`reading_progress`/`reading_session_history`, notas privadas com tags/citações, rascunhos/resenhas com histórico, metas de leitura e imports, `shelves` (tbr/reading/read/abandoned), `lists`, `list_items` (ordenação por `position`), `social` (seguidores), `log_likes`, `comments`, `user_year_stats` (cache de estatísticas).
 
 ## Endpoints principais (`/api/v1`)
 
 | Área | Rota |
 |---|---|
-| Auth | `POST /auth/register` · `POST /auth/login` · `GET /auth/me` |
-| Perfil | `GET /users/:username` · `PUT /users/me` · `GET /users/:username/logs` · `GET /users/:username/shelf` · `GET /users/:username/stats?year=` |
-| Social | `POST/DELETE /users/:id/follow` · `GET /users/:id/followers` · `GET /users/:id/following` |
+| Auth | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `GET /auth/me` · `POST /auth/logout` |
+| Conta | `POST /auth/email/verify-request` · `POST /auth/email/verify` · `POST /auth/password/reset-request` · `POST /auth/password/reset-confirm` · `PUT /auth/password` |
+| Perfil | `GET /users/:username` · `PUT /users/me/profile` · `PUT /users/me/privacy` · exportação/exclusão da conta · favoritos, listas públicas e desafio anual |
+| Social | `POST/DELETE /users/:id/follow` · `GET /users/:id/followers` · `GET /users/:id/following` (somente perfis públicos) |
 | Livros | `GET /books/search?q=` · `GET /books/:id` (média, histograma, resenhas) · `GET /books/popular` |
+| Leituras/diário | `/logs` · `/reading-sessions` · `/notes` · `/reviews` · `/users/me/goals` · importação do histórico |
 | Diário | `POST /logs` · `GET/PUT/DELETE /logs/:id` · `POST/DELETE /logs/:id/like` · `POST /logs/:id/comments` · `GET /logs/:id/comments` |
 | Estante | `PUT /shelf` |
 | Listas | `POST/GET /lists` · `GET/PUT/DELETE /lists/:id` · `POST/DELETE /lists/:id/items` · `GET /lists/trending` |
@@ -87,14 +89,20 @@ make run                             # http://localhost:3000
 curl -X POST localhost:3000/api/v1/auth/register -H 'Content-Type: application/json' \
   -d '{"username":"clara","email":"clara@mail.com","password":"secret123"}'
 
-curl -X POST localhost:3000/api/v1/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"clara@mail.com","password":"secret123"}'          # → {token}
+# Confirme o endereço pelo link enviado via SMTP antes de fazer login.
+curl -c cookies.txt -X POST localhost:3000/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"clara@mail.com","password":"secret123"}'          # → {user, token} + cookie HttpOnly
 
 curl 'localhost:3000/api/v1/books/search?q=torto%20arado'          # busca local-first + persistência
 
-TOKEN=<seu-token>
+TOKEN=<token_de_acesso>
 curl localhost:3000/api/v1/feed -H "Authorization: Bearer $TOKEN"  # feed com cursor na resposta
 ```
+
+Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` e
+`SMTP_FROM` no `.env` para enviar links de confirmação e redefinição. O SMTP
+precisa oferecer STARTTLS. Em produção, configure também `FRONTEND_URL`,
+`REFRESH_COOKIE_SECURE=true`, `JWT_SECRET` e `REFRESH_TOKEN_EXPIRATION`.
 
 ## Produção (Supabase)
 

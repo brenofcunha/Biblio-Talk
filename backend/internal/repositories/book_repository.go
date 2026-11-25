@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,14 +74,27 @@ func (r *BookRepository) GetBookDetail(ctx context.Context, id string) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT COALESCE(avg(rating),0), count(*) FROM logs WHERE book_id=$1`
+	q := `
+		SELECT COALESCE(avg(l.rating),0), count(*)
+		FROM logs l
+		JOIN users u ON u.id=l.user_id
+		WHERE l.book_id=$1
+		  AND COALESCE(u.privacy_settings->>'diary', 'private')='public'
+	`
 	var avg float64
 	var count int
 	if err := r.DB.QueryRow(ctx, q, id).Scan(&avg, &count); err != nil {
 		return nil, err
 	}
 	hist := map[string]int{"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-	rows, err := r.DB.Query(ctx, `SELECT floor(rating)::int as star, count(*) FROM logs WHERE book_id=$1 GROUP BY floor(rating)`, id)
+	rows, err := r.DB.Query(ctx, `
+		SELECT ceil(l.rating)::int as star, count(*)
+		FROM logs l
+		JOIN users u ON u.id=l.user_id
+		WHERE l.book_id=$1
+		  AND COALESCE(u.privacy_settings->>'diary', 'private')='public'
+		GROUP BY ceil(l.rating)
+	`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -90,13 +104,14 @@ func (r *BookRepository) GetBookDetail(ctx context.Context, id string) (map[stri
 		if err := rows.Scan(&star, &c); err != nil {
 			return nil, err
 		}
-		hist["12345"[star-1:star]] = c
+		hist[strconv.Itoa(star)] = c
 	}
 
 	reviewRows, err := r.DB.Query(ctx, `
 		SELECT l.id,l.user_id,l.book_id,l.rating,l.review_text,l.read_date,l.is_reread,l.contains_spoilers,l.likes_count,l.created_at,u.username
 		FROM logs l JOIN users u ON u.id=l.user_id
 		WHERE l.book_id=$1
+		  AND COALESCE(u.privacy_settings->>'diary', 'private')='public'
 		ORDER BY l.created_at DESC LIMIT 10
 	`, id)
 	if err != nil {
@@ -126,7 +141,9 @@ func (r *BookRepository) PopularWeek(ctx context.Context, limit int) ([]map[stri
 		SELECT b.id,b.title,b.authors,b.cover_url,COALESCE(avg(l.rating),0) as avg_rating,count(l.id) as reads
 		FROM books b
 		JOIN logs l ON l.book_id=b.id
+		JOIN users u ON u.id=l.user_id
 		WHERE l.created_at >= now() - interval '7 days'
+		  AND COALESCE(u.privacy_settings->>'diary','private')='public'
 		GROUP BY b.id,b.title,b.authors,b.cover_url
 		ORDER BY reads DESC, avg_rating DESC
 		LIMIT $1

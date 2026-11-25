@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS reading_history_imports;
+DROP TABLE IF EXISTS reading_goals;
+DROP TABLE IF EXISTS review_history;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS private_note_quotes;
+DROP TABLE IF EXISTS private_note_tags;
+DROP TABLE IF EXISTS private_notes;
+DROP TABLE IF EXISTS reading_progress;
+DROP TABLE IF EXISTS reading_session_history;
+DROP TABLE IF EXISTS reading_sessions;

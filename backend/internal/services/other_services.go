@@ -23,6 +23,10 @@ func (s *ShelfService) Upsert(ctx context.Context, userID, bookID, status string
 	return s.repo.Upsert(ctx, userID, bookID, status)
 }
 
+func (s *ShelfService) Remove(ctx context.Context, userID, bookID string) error {
+	return s.repo.Remove(ctx, userID, bookID)
+}
+
 func (s *ShelfService) ByStatus(ctx context.Context, username, status string) ([]models.Shelf, error) {
 	return s.repo.ListByUsernameStatus(ctx, username, status)
 }
@@ -36,8 +40,8 @@ func (s *ListService) Create(ctx context.Context, userID, title string, descript
 func (s *ListService) Mine(ctx context.Context, userID string) ([]models.List, error) {
 	return s.repo.ListMine(ctx, userID)
 }
-func (s *ListService) Detail(ctx context.Context, id string) (map[string]interface{}, error) {
-	return s.repo.GetByID(ctx, id)
+func (s *ListService) Detail(ctx context.Context, id, viewerID string) (map[string]interface{}, error) {
+	return s.repo.GetByID(ctx, id, viewerID)
 }
 func (s *ListService) Update(ctx context.Context, id, userID, title string, description *string, isPrivate bool) error {
 	return s.repo.Update(ctx, id, userID, title, description, isPrivate)
@@ -45,11 +49,11 @@ func (s *ListService) Update(ctx context.Context, id, userID, title string, desc
 func (s *ListService) Delete(ctx context.Context, id, userID string) error {
 	return s.repo.Delete(ctx, id, userID)
 }
-func (s *ListService) UpsertItem(ctx context.Context, listID, bookID string, position int, notes *string) error {
-	return s.repo.UpsertItem(ctx, listID, bookID, position, notes)
+func (s *ListService) UpsertItem(ctx context.Context, listID, userID, bookID string, position int, notes *string) error {
+	return s.repo.UpsertItem(ctx, listID, userID, bookID, position, notes)
 }
-func (s *ListService) DeleteItem(ctx context.Context, listID, bookID string) error {
-	return s.repo.DeleteItem(ctx, listID, bookID)
+func (s *ListService) DeleteItem(ctx context.Context, listID, userID, bookID string) error {
+	return s.repo.DeleteItem(ctx, listID, userID, bookID)
 }
 func (s *ListService) Trending(ctx context.Context, limit int) ([]map[string]interface{}, error) {
 	return s.repo.Trending(ctx, limit)

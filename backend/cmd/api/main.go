@@ -36,17 +36,20 @@ func main() {
 	}
 
 	userRepo := repositories.NewUserRepository(db)
+	authRepo := repositories.NewAuthRepository(db)
 	bookRepo := repositories.NewBookRepository(db)
 	logRepo := repositories.NewLogRepository(db)
 	shelfRepo := repositories.NewShelfRepository(db)
 	listRepo := repositories.NewListRepository(db)
 	feedRepo := repositories.NewFeedRepository(db)
 	statsRepo := repositories.NewStatsRepository(db)
+	diaryRepo := repositories.NewDiaryRepository(db)
 
 	statsPool := async.NewStatsWorkerPool(statsRepo, logger, 4, 200)
 	defer statsPool.Shutdown()
 
-	authSvc := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
+	mailer := services.NewSMTPMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
+	authSvc := services.NewAuthService(userRepo, authRepo, mailer, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration, cfg.FrontendURL)
 	usersSvc := services.NewUserService(userRepo, statsRepo)
 	booksSvc := services.NewBookService(bookRepo, cfg.OpenLibraryURL, cfg.GoogleBooksURL, cfg.GoogleBooksAPIKey)
 	logsSvc := services.NewLogService(db, logRepo, shelfRepo, userRepo, statsPool)
@@ -54,8 +57,9 @@ func main() {
 	listSvc := services.NewListService(listRepo)
 	feedSvc := services.NewFeedService(feedRepo)
 	statsSvc := services.NewStatsService(statsRepo)
+	diarySvc := services.NewDiaryService(diaryRepo)
 
-	h := handlers.New(cfg, db, userRepo, authSvc, usersSvc, booksSvc, logsSvc, shelfSvc, listSvc, feedSvc, statsSvc)
+	h := handlers.New(cfg, db, userRepo, authSvc, usersSvc, booksSvc, logsSvc, shelfSvc, listSvc, feedSvc, statsSvc, diarySvc)
 	app := router.Build(cfg, h, logger)
 
 	go func() {

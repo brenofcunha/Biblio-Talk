@@ -21,6 +21,11 @@ func (r *ShelfRepository) Upsert(ctx context.Context, userID, bookID, status str
 	return err
 }
 
+func (r *ShelfRepository) Remove(ctx context.Context, userID, bookID string) error {
+	_, err := r.DB.Exec(ctx, `DELETE FROM shelves WHERE user_id=$1 AND book_id=$2`, userID, bookID)
+	return err
+}
+
 func (r *ShelfRepository) ListByUsernameStatus(ctx context.Context, username, status string) ([]models.Shelf, error) {
 	q := `SELECT s.id,s.user_id,s.book_id,s.status,s.updated_at FROM shelves s JOIN users u ON u.id=s.user_id WHERE u.username=$1 AND s.status=$2 ORDER BY s.updated_at DESC`
 	rows, err := r.DB.Query(ctx, q, username, status)

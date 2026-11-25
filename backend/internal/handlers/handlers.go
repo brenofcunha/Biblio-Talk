@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -28,10 +29,11 @@ type Handler struct {
 	Lists    *services.ListService
 	Feed     *services.FeedService
 	Stats    *services.StatsService
+	Diary    *services.DiaryService
 }
 
-func New(cfg config.Config, db *pgxpool.Pool, userRepo *repositories.UserRepository, auth *services.AuthService, users *services.UserService, books *services.BookService, logs *services.LogService, shelves *services.ShelfService, lists *services.ListService, feed *services.FeedService, stats *services.StatsService) *Handler {
-	return &Handler{Cfg: cfg, DB: db, UserRepo: userRepo, Auth: auth, Users: users, Books: books, Logs: logs, Shelves: shelves, Lists: lists, Feed: feed, Stats: stats}
+func New(cfg config.Config, db *pgxpool.Pool, userRepo *repositories.UserRepository, auth *services.AuthService, users *services.UserService, books *services.BookService, logs *services.LogService, shelves *services.ShelfService, lists *services.ListService, feed *services.FeedService, stats *services.StatsService, diary *services.DiaryService) *Handler {
+	return &Handler{Cfg: cfg, DB: db, UserRepo: userRepo, Auth: auth, Users: users, Books: books, Logs: logs, Shelves: shelves, Lists: lists, Feed: feed, Stats: stats, Diary: diary}
 }
 
 func (h *Handler) withTimeout(c *fiber.Ctx) (context.Context, context.CancelFunc) {
@@ -86,11 +88,14 @@ func (h *Handler) Register(c *fiber.Ctx) error {
 	}
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	u, token, err := h.Auth.Register(ctx, req.Username, req.Email, req.Password)
+	u, err := h.Auth.Register(ctx, req.Username, req.Email, req.Password)
 	if err != nil {
-		return mapError(c, err, "Falha ao registrar usuário")
+		if u != nil && errors.Is(err, services.ErrEmailUnavailable) {
+			return utils.Success(c, fiber.StatusCreated, map[string]interface{}{"user": u, "verificationRequired": true, "emailSent": false}, "Conta criada, mas não foi possível enviar o e-mail. Solicite uma nova confirmação.")
+		}
+		return authError(c, err, "Falha ao registrar usuário")
 	}
-	return utils.Success(c, fiber.StatusCreated, map[string]interface{}{"user": u, "token": token}, "Usuário registrado com sucesso")
+	return utils.Success(c, fiber.StatusCreated, map[string]interface{}{"user": u, "verificationRequired": true, "emailSent": true}, "Conta criada. Confirme seu e-mail para entrar.")
 }
 
 func (h *Handler) Login(c *fiber.Ctx) error {
@@ -100,28 +105,192 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 	}
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	u, token, err := h.Auth.Login(ctx, req.Email, req.Password)
+	session, err := h.Auth.Login(ctx, req.Email, req.Password)
 	if err != nil {
-		return mapError(c, err, "Falha de autenticação")
+		return authError(c, err, "Falha de autenticação")
 	}
-	return utils.Success(c, fiber.StatusOK, map[string]interface{}{"user": u, "token": token}, "Login realizado com sucesso")
+	h.setRefreshCookie(c, session.RefreshToken)
+	return utils.Success(c, fiber.StatusOK, map[string]interface{}{"user": session.User, "token": session.AccessToken}, "Login realizado com sucesso")
 }
 
 func (h *Handler) Logout(c *fiber.Ctx) error {
-	header := c.Get("Authorization")
-	token := header[len("Bearer "):]
-	claims, err := utils.ParseToken(h.Cfg.JWTSecret, token)
-	if err != nil || claims.ExpiresAt == nil {
-		return utils.Fail(c, fiber.StatusUnauthorized, "unauthorized", "Token JWT inválido", "faça login novamente")
+	h.clearRefreshCookie(c)
+	if err := h.Auth.RevokeSession(c.UserContext(), c.Locals("sessionId").(string)); err != nil {
+		return authError(c, err, "Não foi possível encerrar a sessão")
 	}
-	utils.RevokeToken(token, claims.ExpiresAt.Time)
 	return utils.Success(c, fiber.StatusOK, nil, "Logout realizado com sucesso")
+}
+
+func (h *Handler) ListAuthSessions(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	sessions, err := h.Auth.ListActiveSessions(ctx, c.Locals("userId").(string), c.Locals("sessionId").(string))
+	if err != nil {
+		return authError(c, err, "Não foi possível listar as sessões")
+	}
+	return utils.Success(c, fiber.StatusOK, sessions, "Sessões carregadas")
+}
+
+func (h *Handler) RevokeAuthSession(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	userID := c.Locals("userId").(string)
+	sessionID := c.Params("id")
+	if err := h.Auth.RevokeUserSession(ctx, userID, sessionID); err != nil {
+		return authError(c, err, "Não foi possível revogar a sessão")
+	}
+	if sessionID == c.Locals("sessionId").(string) {
+		h.clearRefreshCookie(c)
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Sessão revogada")
+}
+
+func (h *Handler) RevokeOtherAuthSessions(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	revoked, err := h.Auth.RevokeOtherSessions(ctx, c.Locals("userId").(string), c.Locals("sessionId").(string))
+	if err != nil {
+		return authError(c, err, "Não foi possível revogar as outras sessões")
+	}
+	return utils.Success(c, fiber.StatusOK, map[string]int64{"revokedCount": revoked}, "Outras sessões revogadas")
+}
+
+func (h *Handler) Refresh(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	session, err := h.Auth.Refresh(ctx, c.Cookies("biblio-talk-refresh"))
+	if err != nil {
+		h.clearRefreshCookie(c)
+		return authError(c, err, "Não foi possível renovar a sessão")
+	}
+	h.setRefreshCookie(c, session.RefreshToken)
+	return utils.Success(c, fiber.StatusOK, map[string]interface{}{"user": session.User, "token": session.AccessToken}, "Sessão renovada")
+}
+
+func (h *Handler) RequestPasswordReset(c *fiber.Ctx) error {
+	var req dto.EmailRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	if err := services.ValidateEmail(req.Email); err != nil {
+		return authError(c, err, "E-mail inválido")
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Auth.RequestPasswordReset(ctx, req.Email); err != nil {
+		return authError(c, err, "Não foi possível solicitar a redefinição")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Se o e-mail estiver cadastrado, enviaremos um link para redefinir a senha.")
+}
+
+func (h *Handler) ResetPassword(c *fiber.Ctx) error {
+	var req dto.ResetPasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Auth.ResetPassword(ctx, req.Token, req.Password); err != nil {
+		return authError(c, err, "Não foi possível redefinir a senha")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Senha redefinida. Entre novamente.")
+}
+
+func (h *Handler) ChangePassword(c *fiber.Ctx) error {
+	var req dto.ChangePasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	err := h.Auth.ChangePassword(ctx, c.Locals("userId").(string), c.Locals("sessionId").(string), req.CurrentPassword, req.NewPassword)
+	if err != nil {
+		return authError(c, err, "Não foi possível trocar a senha")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Senha alterada. Outras sessões foram encerradas.")
+}
+
+func (h *Handler) RequestEmailVerification(c *fiber.Ctx) error {
+	var req dto.EmailRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	if err := services.ValidateEmail(req.Email); err != nil {
+		return authError(c, err, "E-mail inválido")
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Auth.RequestEmailVerification(ctx, req.Email); err != nil {
+		return authError(c, err, "Não foi possível enviar a confirmação")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Se a conta puder ser confirmada, enviaremos um novo link.")
+}
+
+func (h *Handler) VerifyEmail(c *fiber.Ctx) error {
+	var req dto.TokenRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Auth.VerifyEmail(ctx, req.Token); err != nil {
+		return authError(c, err, "Não foi possível confirmar o e-mail")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "E-mail confirmado. Você já pode entrar.")
+}
+
+func authError(c *fiber.Ctx, err error, fallback string) error {
+	switch {
+	case errors.Is(err, services.ErrValidation):
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidAuthInput", err.Error(), "")
+	case errors.Is(err, services.ErrInvalidCredentials):
+		return utils.Fail(c, fiber.StatusUnauthorized, "invalidCredentials", "E-mail ou senha inválidos", "")
+	case errors.Is(err, services.ErrConflict):
+		return utils.Fail(c, fiber.StatusConflict, "accountConflict", "Nome de usuário ou e-mail já cadastrado", "")
+	case errors.Is(err, services.ErrEmailNotVerified):
+		return utils.Fail(c, fiber.StatusForbidden, "emailNotVerified", "Confirme seu e-mail antes de entrar", "")
+	case errors.Is(err, services.ErrInvalidToken):
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidToken", "Link inválido ou expirado", "")
+	case errors.Is(err, services.ErrInvalidSession):
+		return utils.Fail(c, fiber.StatusUnauthorized, "invalidSession", "Sessão inválida ou expirada", "")
+	case errors.Is(err, services.ErrEmailUnavailable):
+		return utils.Fail(c, fiber.StatusServiceUnavailable, "emailUnavailable", "Não foi possível enviar o e-mail. Tente novamente mais tarde.", "")
+	default:
+		return utils.Fail(c, fiber.StatusInternalServerError, "authError", fallback, "")
+	}
+}
+
+func (h *Handler) setRefreshCookie(c *fiber.Ctx, token string) {
+	lifetime := int(h.Cfg.RefreshTokenExpiration.Seconds())
+	c.Cookie(&fiber.Cookie{
+		Name:     "biblio-talk-refresh",
+		Value:    token,
+		Path:     "/api/v1/auth",
+		HTTPOnly: true,
+		Secure:   h.Cfg.RefreshCookieSecure,
+		SameSite: "Lax",
+		MaxAge:   lifetime,
+		Expires:  time.Now().Add(h.Cfg.RefreshTokenExpiration),
+	})
+}
+
+func (h *Handler) clearRefreshCookie(c *fiber.Ctx) {
+	c.Cookie(&fiber.Cookie{
+		Name:     "biblio-talk-refresh",
+		Value:    "",
+		Path:     "/api/v1/auth",
+		HTTPOnly: true,
+		Secure:   h.Cfg.RefreshCookieSecure,
+		SameSite: "Lax",
+		MaxAge:   -1,
+		Expires:  time.Unix(1, 0),
+	})
 }
 
 func (h *Handler) Me(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	u, err := h.Users.GetPublicProfile(ctx, c.Locals("username").(string), time.Now().Year())
+	u, err := h.Users.GetMyProfile(ctx, c.Locals("userId").(string), time.Now().Year())
 	if err != nil {
 		return mapError(c, err, "Falha ao carregar usuário")
 	}
@@ -151,27 +320,207 @@ func (h *Handler) UpdateMe(c *fiber.Ctx) error {
 	return utils.Success(c, fiber.StatusOK, nil, "Perfil atualizado com sucesso")
 }
 
+func (h *Handler) UpdateProfile(c *fiber.Ctx) error {
+	var req dto.UpdateProfileRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	err := h.Users.UpdateProfile(ctx, c.Locals("userId").(string), models.User{
+		DisplayName: req.DisplayName, Bio: req.Bio, AvatarURL: req.AvatarURL, BannerURL: req.BannerURL, Location: req.Location,
+	})
+	if err != nil {
+		return userError(c, err, "Falha ao atualizar perfil")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Perfil atualizado")
+}
+
+func (h *Handler) UpdatePrivacy(c *fiber.Ctx) error {
+	var req dto.UpdatePrivacyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	settings := models.PrivacySettings{
+		Profile: req.Profile, Diary: req.Diary, Progress: req.Progress, Shelf: req.Shelf,
+		Notes: req.Notes, Comments: req.Comments, Lists: req.Lists, Stats: req.Stats, Favorites: req.Favorites,
+	}
+	if err := h.Users.UpdatePrivacy(ctx, c.Locals("userId").(string), settings); err != nil {
+		return userError(c, err, "Configuração de privacidade inválida")
+	}
+	return utils.Success(c, fiber.StatusOK, settings, "Privacidade atualizada")
+}
+
+func (h *Handler) ExportMyData(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	data, err := h.Users.Export(ctx, c.Locals("userId").(string))
+	if err != nil {
+		return userError(c, err, "Falha ao exportar dados")
+	}
+	c.Set(fiber.HeaderContentDisposition, `attachment; filename="biblio-talk-data.json"`)
+	return utils.Success(c, fiber.StatusOK, data, "Exportação de dados concluída")
+}
+
+func (h *Handler) DeleteMe(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Users.DeleteAccount(ctx, c.Locals("userId").(string)); err != nil {
+		return userError(c, err, "Falha ao excluir conta")
+	}
+	h.clearRefreshCookie(c)
+	return utils.Success(c, fiber.StatusOK, nil, "Conta e dados associados foram excluídos")
+}
+
+func (h *Handler) RecordConsent(c *fiber.Ctx) error {
+	var req dto.ConsentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if req.Granted == nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidUserData", "Consentimento inválido", "informe granted como true ou false")
+	}
+	consent, err := h.Users.RecordConsent(ctx, c.Locals("userId").(string), models.Consent{
+		ConsentType: req.ConsentType, Version: req.Version, Granted: *req.Granted,
+	})
+	if err != nil {
+		return userError(c, err, "Consentimento inválido")
+	}
+	return utils.Success(c, fiber.StatusCreated, consent, "Consentimento registrado")
+}
+
+func (h *Handler) UpdateFavorites(c *fiber.Ctx) error {
+	var req dto.UpdateFavoritesRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Users.UpdateFavorites(ctx, c.Locals("userId").(string), req.BookIDs); err != nil {
+		return userError(c, err, "Não foi possível atualizar livros favoritos")
+	}
+	return utils.Success(c, fiber.StatusOK, req.BookIDs, "Livros favoritos atualizados")
+}
+
+func (h *Handler) PublicFavorites(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	data, err := h.Users.PublicFavorites(ctx, c.Params("username"))
+	if err != nil {
+		return mapError(c, err, "Favoritos não encontrados")
+	}
+	return utils.Success(c, fiber.StatusOK, data, "Livros favoritos carregados")
+}
+
+func (h *Handler) PublicUserLists(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	data, err := h.Users.PublicLists(ctx, c.Params("username"))
+	if err != nil {
+		return mapError(c, err, "Listas públicas não encontradas")
+	}
+	return utils.Success(c, fiber.StatusOK, data, "Listas públicas carregadas")
+}
+
+func (h *Handler) UpdateAnnualChallenge(c *fiber.Ctx) error {
+	var req dto.AnnualChallengeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidBody", "JSON inválido", err.Error())
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	challenge := models.AnnualChallenge{Year: req.Year, TargetBooks: req.TargetBooks, IsPublic: req.IsPublic}
+	if err := h.Users.SaveAnnualChallenge(ctx, c.Locals("userId").(string), challenge); err != nil {
+		return userError(c, err, "Desafio anual inválido")
+	}
+	return utils.Success(c, fiber.StatusOK, challenge, "Desafio anual atualizado")
+}
+
+func (h *Handler) PublicAnnualChallenge(c *fiber.Ctx) error {
+	year := parseYear(c)
+	if c.Query("year") != "" {
+		parsed, err := strconv.Atoi(c.Query("year"))
+		if err != nil {
+			return utils.Fail(c, fiber.StatusBadRequest, "invalidYear", "Ano inválido", "use um ano entre 2000 e 2100")
+		}
+		year = parsed
+	}
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	challenge, err := h.Users.PublicAnnualChallenge(ctx, c.Params("username"), year)
+	if err != nil {
+		return userError(c, err, "Desafio anual não encontrado")
+	}
+	return utils.Success(c, fiber.StatusOK, challenge, "Desafio anual carregado")
+}
+
+func userError(c *fiber.Ctx, err error, fallback string) error {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", fallback, "")
+	case errors.Is(err, services.ErrInvalidProfile), errors.Is(err, services.ErrInvalidPrivacy),
+		errors.Is(err, services.ErrInvalidConsent), errors.Is(err, services.ErrInvalidChallenge):
+		return utils.Fail(c, fiber.StatusBadRequest, "invalidUserData", err.Error(), "")
+	default:
+		return utils.Fail(c, fiber.StatusInternalServerError, "userOperationFailed", fallback, "")
+	}
+}
+
 func (h *Handler) Follow(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	if err := h.UserRepo.Follow(ctx, c.Locals("userId").(string), c.Params("id")); err != nil {
-		return mapError(c, err, "Falha ao seguir usuário")
+	created, err := h.Users.Follow(ctx, c.Locals("userId").(string), c.Params("id"))
+	if err != nil {
+		return socialError(c, err, "Falha ao seguir usuário")
 	}
-	return utils.Success(c, fiber.StatusOK, nil, "Agora você segue este usuário")
+	status := fiber.StatusCreated
+	message := "Agora você segue este usuário"
+	if !created {
+		status = fiber.StatusOK
+		message = "Você já segue este usuário"
+	}
+	return utils.Success(c, status, map[string]bool{"following": true}, message)
 }
 
 func (h *Handler) Unfollow(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	if err := h.UserRepo.Unfollow(ctx, c.Locals("userId").(string), c.Params("id")); err != nil {
-		return mapError(c, err, "Falha ao deixar de seguir usuário")
+	removed, err := h.Users.Unfollow(ctx, c.Locals("userId").(string), c.Params("id"))
+	if err != nil {
+		return socialError(c, err, "Falha ao deixar de seguir usuário")
 	}
-	return utils.Success(c, fiber.StatusOK, nil, "Você deixou de seguir este usuário")
+	message := "Você deixou de seguir este usuário"
+	if !removed {
+		message = "Você não seguia este usuário"
+	}
+	return utils.Success(c, fiber.StatusOK, map[string]bool{"following": false}, message)
+}
+
+func socialError(c *fiber.Ctx, err error, fallback string) error {
+	switch {
+	case errors.Is(err, services.ErrSelfFollow):
+		return utils.Fail(c, fiber.StatusBadRequest, "selfFollow", err.Error(), "")
+	case errors.Is(err, services.ErrSocialUserNotFound), errors.Is(err, pgx.ErrNoRows):
+		return utils.Fail(c, fiber.StatusNotFound, "userNotFound", "Usuário não encontrado", "")
+	default:
+		return utils.Fail(c, fiber.StatusInternalServerError, "socialOperationFailed", fallback, "")
+	}
 }
 
 func (h *Handler) Followers(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
+	canView, err := h.Users.CanViewByID(ctx, c.Params("id"), "profile")
+	if err != nil {
+		return mapError(c, err, "Usuário não encontrado")
+	}
+	if !canView {
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", "Usuário não encontrado", "")
+	}
 	data, err := h.UserRepo.ListFollowers(ctx, c.Params("id"))
 	if err != nil {
 		return mapError(c, err, "Falha ao listar seguidores")
@@ -182,6 +531,13 @@ func (h *Handler) Followers(c *fiber.Ctx) error {
 func (h *Handler) Following(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
+	canView, err := h.Users.CanViewByID(ctx, c.Params("id"), "profile")
+	if err != nil {
+		return mapError(c, err, "Usuário não encontrado")
+	}
+	if !canView {
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", "Usuário não encontrado", "")
+	}
 	data, err := h.UserRepo.ListFollowing(ctx, c.Params("id"))
 	if err != nil {
 		return mapError(c, err, "Falha ao listar seguindo")
@@ -242,7 +598,7 @@ func (h *Handler) CreateLog(c *fiber.Ctx) error {
 func (h *Handler) GetLog(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	log, err := h.Logs.Get(ctx, c.Params("id"))
+	log, err := h.Logs.Get(ctx, c.Locals("userId").(string), c.Params("id"))
 	if err != nil {
 		return mapError(c, err, "Falha ao carregar log")
 	}
@@ -317,6 +673,13 @@ func (h *Handler) ListComments(c *fiber.Ctx) error {
 func (h *Handler) UserLogs(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
+	canView, err := h.Users.CanView(ctx, c.Params("username"), "diary")
+	if err != nil {
+		return mapError(c, err, "Usuário não encontrado")
+	}
+	if !canView {
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", "Diário não encontrado", "")
+	}
 	logs, err := h.Logs.UserLogs(ctx, c.Params("username"), parseLimit(c, 20))
 	if err != nil {
 		return mapError(c, err, "Falha ao listar diário")
@@ -337,10 +700,26 @@ func (h *Handler) UpsertShelf(c *fiber.Ctx) error {
 	return utils.Success(c, fiber.StatusOK, nil, "Estante atualizada")
 }
 
+func (h *Handler) RemoveShelfBook(c *fiber.Ctx) error {
+	ctx, cancel := h.withTimeout(c)
+	defer cancel()
+	if err := h.Shelves.Remove(ctx, c.Locals("userId").(string), c.Params("bookId")); err != nil {
+		return mapError(c, err, "Falha ao remover livro da estante")
+	}
+	return utils.Success(c, fiber.StatusOK, nil, "Livro removido da estante")
+}
+
 func (h *Handler) UserShelf(c *fiber.Ctx) error {
 	status := c.Query("status", "reading")
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
+	canView, err := h.Users.CanView(ctx, c.Params("username"), "shelf")
+	if err != nil {
+		return mapError(c, err, "Usuário não encontrado")
+	}
+	if !canView {
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", "Estante não encontrada", "")
+	}
 	data, err := h.Shelves.ByStatus(ctx, c.Params("username"), status)
 	if err != nil {
 		return mapError(c, err, "Falha ao listar estante")
@@ -375,7 +754,8 @@ func (h *Handler) MyLists(c *fiber.Ctx) error {
 func (h *Handler) ListDetail(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	data, err := h.Lists.Detail(ctx, c.Params("id"))
+	viewerID, _ := c.Locals("userId").(string)
+	data, err := h.Lists.Detail(ctx, c.Params("id"), viewerID)
 	if err != nil {
 		return mapError(c, err, "Falha ao carregar lista")
 	}
@@ -411,7 +791,7 @@ func (h *Handler) UpsertListItem(c *fiber.Ctx) error {
 	}
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	if err := h.Lists.UpsertItem(ctx, c.Params("id"), req.BookID, req.Position, req.Notes); err != nil {
+	if err := h.Lists.UpsertItem(ctx, c.Params("id"), c.Locals("userId").(string), req.BookID, req.Position, req.Notes); err != nil {
 		return mapError(c, err, "Falha ao adicionar item")
 	}
 	return utils.Success(c, fiber.StatusOK, nil, "Item salvo")
@@ -424,7 +804,7 @@ func (h *Handler) DeleteListItem(c *fiber.Ctx) error {
 	}
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	if err := h.Lists.DeleteItem(ctx, c.Params("id"), req.BookID); err != nil {
+	if err := h.Lists.DeleteItem(ctx, c.Params("id"), c.Locals("userId").(string), req.BookID); err != nil {
 		return mapError(c, err, "Falha ao remover item")
 	}
 	return utils.Success(c, fiber.StatusOK, nil, "Item removido")
@@ -474,6 +854,13 @@ func (h *Handler) FeedReviews(c *fiber.Ctx) error {
 func (h *Handler) UserStats(c *fiber.Ctx) error {
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
+	canView, err := h.Users.CanView(ctx, c.Params("username"), "stats")
+	if err != nil {
+		return mapError(c, err, "Usuário não encontrado")
+	}
+	if !canView {
+		return utils.Fail(c, fiber.StatusNotFound, "notFound", "Estatísticas não encontradas", "")
+	}
 	stats, err := h.Stats.Year(ctx, c.Params("username"), parseYear(c))
 	if err != nil {
 		return mapError(c, err, "Falha ao carregar estatísticas")

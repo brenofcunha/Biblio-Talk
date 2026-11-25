@@ -13,10 +13,38 @@ function decodeTokenPayload(token: string) {
 export type User = {
   id: string
   username: string
+  displayName?: string
   email?: string
   bio?: string | null
   avatarUrl?: string | null
+  bannerUrl?: string | null
+  location?: string | null
   top4BookIds?: string[]
+}
+
+export type PrivacySettings = {
+  profile: 'public' | 'private'
+  diary: 'public' | 'private'
+  progress: 'public' | 'private'
+  shelf: 'public' | 'private'
+  notes: 'public' | 'private'
+  comments: 'public' | 'private'
+  lists: 'public' | 'private'
+  stats: 'public' | 'private'
+  favorites: 'public' | 'private'
+}
+
+export type AnnualChallenge = {
+  year: number
+  targetBooks: number
+  booksRead: number
+  isPublic: boolean
+}
+
+export type SocialUser = {
+  id: string
+  username: string
+  followedAt: string
 }
 
 export type Book = {
@@ -42,10 +70,11 @@ export type BookDetails = Book & {
 export type FeedItem = {
   id: string
   createdAt: string
+  source?: 'log' | 'review'
   user: { username: string }
   bookId?: string
   book: { title: string; authors: string[]; coverUrl?: string | null }
-  rating: number
+  rating: number | null
   reviewText?: string | null
   containsSpoilers: boolean
   likesCount: number
@@ -54,7 +83,8 @@ export type FeedItem = {
 
 export type FeedPage = { items: FeedItem[]; nextCursor?: string; limit: number }
 
-export type ReadingLog = FeedItem & {
+export type ReadingLog = Omit<FeedItem, 'rating'> & {
+  rating: number
   userId: string
   bookId: string
   readDate?: string | null
@@ -86,6 +116,9 @@ type APIResponse<T> = {
 }
 
 export type AuthResult = { user: User; token: string }
+export type RegistrationResult = { user: User; verificationRequired: boolean; emailSent: boolean }
+
+let refreshPromise: Promise<boolean> | null = null
 
 function getToken() {
   const token = sessionStorage.getItem(TOKEN_KEY)
@@ -106,14 +139,49 @@ function getToken() {
   return token
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        const body = await response.json() as APIResponse<AuthResult>
+        if (!response.ok || !body.success || !body.data?.token) {
+          clearToken()
+          return false
+        }
+        saveToken(body.data.token)
+        return true
+      } catch {
+        clearToken()
+        return false
+      } finally {
+        refreshPromise = null
+      }
+    })()
+  }
+  return refreshPromise
+}
+
+export async function restoreSession() {
+  return getToken() ? true : refreshAccessToken()
+}
+
+async function request<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers })
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include' })
   const body = await response.json() as APIResponse<T>
+  const isAuthEntry = ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh'].includes(path)
+  if (response.status === 401 && !retried && !isAuthEntry && await refreshAccessToken()) {
+    return request<T>(path, init, true)
+  }
   if (response.status === 401) clearToken()
   if (!response.ok || !body.success) {
     throw new Error(body.message ?? body.error?.details ?? 'Não foi possível concluir a operação.')
@@ -146,9 +214,44 @@ export function login(email: string, password: string) {
 }
 
 export function register(username: string, email: string, password: string) {
-  return request<AuthResult>('/api/v1/auth/register', {
+  return request<RegistrationResult>('/api/v1/auth/register', {
     method: 'POST',
     body: JSON.stringify({ username, email, password }),
+  })
+}
+
+export function requestPasswordReset(email: string) {
+  return request<null>('/api/v1/auth/password/reset-request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export function resetPassword(token: string, password: string) {
+  return request<null>('/api/v1/auth/password/reset-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  })
+}
+
+export function requestEmailVerification(email: string) {
+  return request<null>('/api/v1/auth/email/verify-request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export function verifyEmail(token: string) {
+  return request<null>('/api/v1/auth/email/verify', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
+export function changePassword(currentPassword: string, newPassword: string) {
+  return request<null>('/api/v1/auth/password', {
+    method: 'PUT',
+    body: JSON.stringify({ currentPassword, newPassword }),
   })
 }
 
@@ -185,7 +288,86 @@ export function getBook(id: string) {
 }
 
 export function getProfile(username: string) {
-  return request<User & { stats?: Record<string, unknown> }>(`/api/v1/users/${encodeURIComponent(username)}`)
+  return request<User & { stats?: Record<string, unknown>; privacy?: PrivacySettings }>(`/api/v1/users/${encodeURIComponent(username)}`)
+}
+
+export function updateUserProfile(profile: {
+  displayName: string
+  bio?: string | null
+  avatarUrl?: string | null
+  bannerUrl?: string | null
+  location?: string | null
+}) {
+  return request<null>('/api/v1/users/me/profile', {
+    method: 'PUT',
+    body: JSON.stringify(profile),
+  })
+}
+
+export function updatePrivacy(settings: PrivacySettings) {
+  return request<PrivacySettings>('/api/v1/users/me/privacy', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
+export function exportMyData() {
+  return request<{ exportedAt: string; data: Record<string, unknown> }>('/api/v1/users/me/data-export')
+}
+
+export async function deleteMyAccount() {
+  const result = await request<null>('/api/v1/users/me', { method: 'DELETE' })
+  clearToken()
+  return result
+}
+
+export function recordConsent(consentType: 'terms_of_service' | 'privacy_policy' | 'marketing', version: string, granted: boolean) {
+  return request<{ id: string; consentType: string; version: string; granted: boolean; recordedAt: string }>('/api/v1/users/me/consent', {
+    method: 'POST',
+    body: JSON.stringify({ consentType, version, granted }),
+  })
+}
+
+export function updateFavorites(bookIds: string[]) {
+  return request<string[]>('/api/v1/users/me/favorites', {
+    method: 'PUT',
+    body: JSON.stringify({ bookIds }),
+  })
+}
+
+export function getUserFavorites(username: string) {
+  return request<Book[]>(`/api/v1/users/${encodeURIComponent(username)}/favorites`)
+}
+
+export function getUserLists(username: string) {
+  return request<ReadingList[]>(`/api/v1/users/${encodeURIComponent(username)}/lists`)
+}
+
+export function updateAnnualChallenge(challenge: Pick<AnnualChallenge, 'year' | 'targetBooks' | 'isPublic'>) {
+  return request<AnnualChallenge>('/api/v1/users/me/annual-challenge', {
+    method: 'PUT',
+    body: JSON.stringify(challenge),
+  })
+}
+
+export function getUserAnnualChallenge(username: string, year = new Date().getFullYear()) {
+  return request<AnnualChallenge>(`/api/v1/users/${encodeURIComponent(username)}/annual-challenge?year=${year}`)
+}
+
+export function followUser(userId: string) {
+  return request<{ following: boolean }>(`/api/v1/users/${encodeURIComponent(userId)}/follow`, { method: 'POST' })
+}
+
+export function unfollowUser(userId: string) {
+  return request<{ following: boolean }>(`/api/v1/users/${encodeURIComponent(userId)}/follow`, { method: 'DELETE' })
+}
+
+export function getFollowers(userId: string) {
+  return request<SocialUser[]>(`/api/v1/users/${encodeURIComponent(userId)}/followers`)
+}
+
+export function getFollowing(userId: string) {
+  return request<SocialUser[]>(`/api/v1/users/${encodeURIComponent(userId)}/following`)
 }
 
 export function getUserLogs(username: string) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { addBookToList, clearToken, createReadingList, createReadingLog, getAllUserShelves, getBook, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, logout, register, saveToken, searchBooks, updateShelf, type Book, type BookDetails, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
+import { addBookToList, clearToken, createReadingList, createReadingLog, getAllUserShelves, getBook, getCurrentUser, getFeed, getGlobalFeed, getMoreFeed, getMyLists, getPopularBooks, getReviewFeed, getProfile, getUserLogs, getUserStats, hasToken, login, logout, register, requestEmailVerification, requestPasswordReset, resetPassword, restoreSession, saveToken, searchBooks, updateShelf, verifyEmail, type Book, type BookDetails, type FeedItem, type ReadingList, type ReadingLog, type ShelfEntry, type User } from './api'
 
 type Screen = 'dashboard' | 'feed' | 'detail' | 'profile' | 'list' | 'diary' | 'shelves'
 
@@ -35,24 +35,56 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
 
-function AuthScreen({ onAuthenticated }: { onAuthenticated: (result: { user: User; token: string }) => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+type AuthMode = 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'verifyRequest'
+
+function AuthScreen({ onAuthenticated, initialMode = 'login', actionToken = '' }: { onAuthenticated: (result: { user: User; token: string }) => void; initialMode?: AuthMode; actionToken?: string }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode)
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    if (mode === 'login' || mode === 'register' || mode === 'reset') {
+      const passwordBytes = new TextEncoder().encode(password).length
+      if (passwordBytes > 72 || (mode !== 'login' && Array.from(password).length < 8)) {
+        setError(mode === 'login' ? 'A senha excede o limite aceito.' : 'Use uma senha com pelo menos 8 caracteres e até 72 bytes.')
+        return
+      }
+    }
     setLoading(true)
     try {
-      const result = mode === 'login'
-        ? await login(email, password)
-        : await register(username, email, password)
-      saveToken(result.token)
-      onAuthenticated(result)
+      if (mode === 'login') {
+        const result = await login(email, password)
+        saveToken(result.token)
+        onAuthenticated(result)
+      } else if (mode === 'register') {
+        const result = await register(username, email, password)
+        setNotice(result.emailSent
+          ? 'Conta criada. Confira seu e-mail e confirme o endereço antes de entrar.'
+          : 'Conta criada, mas o e-mail não foi enviado. Solicite uma nova confirmação.')
+        setMode(result.emailSent ? 'login' : 'verifyRequest')
+      } else if (mode === 'forgot' || mode === 'verifyRequest') {
+        if (mode === 'forgot') await requestPasswordReset(email)
+        else await requestEmailVerification(email)
+        setNotice(mode === 'forgot'
+          ? 'Se o e-mail estiver cadastrado, enviaremos um link para redefinir a senha.'
+          : 'Se a conta puder ser confirmada, enviaremos um novo link.')
+      } else if (mode === 'reset') {
+        await resetPassword(actionToken, password)
+        setNotice('Senha redefinida. Entre com sua nova senha.')
+        setMode('login')
+        window.history.replaceState(null, '', window.location.pathname)
+      } else {
+        await verifyEmail(actionToken)
+        setNotice('E-mail confirmado. Você já pode entrar.')
+        setMode('login')
+        window.history.replaceState(null, '', window.location.pathname)
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Não foi possível autenticar.')
     } finally {
@@ -66,15 +98,19 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (result: { user: Use
       <div><p className="eyebrow">Sua história como leitor</p><h1>Todo livro deixa uma marca.</h1><p>Guarde suas leituras, descubra novas histórias e encontre pessoas que sentem os livros como você.</p></div>
       <blockquote>“A leitura é uma forma de estar em muitos lugares sem deixar de estar em si.”<span>— Ana Martins Marques</span></blockquote>
     </section>
-    <section className="auth-panel"><div className="auth-box"><p className="eyebrow">{mode === 'login' ? 'Bem-vindo de volta' : 'Comece seu diário'}</p><h2>{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</h2><p>{mode === 'login' ? 'Seu diário e suas próximas leituras estão esperando.' : 'É gratuito. Você só precisa de um minuto.'}</p>
+    <section className="auth-panel"><div className="auth-box"><p className="eyebrow">{mode === 'login' ? 'Bem-vindo de volta' : mode === 'register' ? 'Comece seu diário' : 'Acesso à sua conta'}</p><h2>{mode === 'login' ? 'Entre na sua conta' : mode === 'register' ? 'Crie sua conta' : mode === 'forgot' ? 'Redefina sua senha' : mode === 'reset' ? 'Escolha uma nova senha' : mode === 'verify' ? 'Confirme seu e-mail' : 'Reenviar confirmação'}</h2><p>{mode === 'login' ? 'Seu diário e suas próximas leituras estão esperando.' : mode === 'register' ? 'É gratuito. Você só precisa de um minuto.' : mode === 'forgot' || mode === 'verifyRequest' ? 'Enviaremos um link para o endereço informado.' : 'Use o link recebido por e-mail para continuar.'}</p>
       <form className="auth-form" onSubmit={submit}>
-        {mode === 'register' && <label><span>Nome de usuário</span><input required value={username} onChange={event => setUsername(event.target.value)} /></label>}
-        <label><span>E-mail</span><input required type="email" value={email} onChange={event => setEmail(event.target.value)} /></label>
-        <label><span>Senha</span><input required minLength={8} type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+        {mode === 'register' && <label><span>Nome de usuário</span><input required minLength={3} maxLength={30} pattern="[A-Za-z0-9_]{3,30}" title="Use de 3 a 30 letras, números ou _." value={username} onChange={event => setUsername(event.target.value)} /></label>}
+        {(mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'verifyRequest') && <label><span>E-mail</span><input required type="email" value={email} onChange={event => setEmail(event.target.value)} /></label>}
+        {(mode === 'login' || mode === 'register' || mode === 'reset') && <label><span>{mode === 'reset' ? 'Nova senha' : 'Senha'}</span><input required type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="primary-button wide" disabled={loading}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar no Lume' : 'Criar minha conta'}</button>
+        {notice && <p role="status">{notice}</p>}
+        <button className="primary-button wide" disabled={loading}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar no Lume' : mode === 'register' ? 'Criar minha conta' : mode === 'forgot' ? 'Enviar link de redefinição' : mode === 'reset' ? 'Redefinir senha' : mode === 'verify' ? 'Confirmar e-mail' : 'Enviar confirmação'}</button>
       </form>
-      <p className="auth-switch">{mode === 'login' ? 'Ainda não tem uma conta?' : 'Já faz parte do Lume?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>{mode === 'login' ? 'Cadastre-se' : 'Entrar'}</button></p>
+      {mode === 'login'
+        ? <p className="auth-switch">Ainda não tem uma conta? <button type="button" onClick={() => { setMode('register'); setError(''); setNotice('') }}>Cadastre-se</button></p>
+        : <p className="auth-switch"><button type="button" onClick={() => { setMode('login'); setError(''); setNotice('') }}>Voltar para entrar</button></p>}
+      {mode === 'login' && <p className="auth-switch"><button type="button" onClick={() => { setMode('forgot'); setError(''); setNotice('') }}>Esqueci minha senha</button> · <button type="button" onClick={() => { setMode('verifyRequest'); setError(''); setNotice('') }}>Reenviar confirmação</button></p>}
     </div></section>
   </main>
 }
@@ -145,7 +181,7 @@ function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) =>
   const book: Book = { id: item.bookId || item.id, title: item.book.title, authors: item.book.authors, coverUrl: item.book.coverUrl }
   return <article className="feed-card">
     <div className="activity-head">
-      <div className="user-line"><Avatar user={user} small onClick={() => navigate('profile')} /><div><button onClick={() => navigate('profile')}><strong>@{item.user.username}</strong></button><p>registrou uma leitura · {new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div></div>
+      <div className="user-line"><Avatar user={user} small onClick={() => navigate('profile')} /><div><button onClick={() => navigate('profile')}><strong>@{item.user.username}</strong></button><p>{item.source === 'review' ? 'publicou uma resenha' : 'registrou uma leitura'} · {new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div></div>
       <button className="icon-button" aria-label="Mais opções"><Icon name="more" /></button>
     </div>
     <div className="activity-body">
@@ -153,7 +189,7 @@ function FeedCard({ item, navigate }: { item: FeedItem; navigate: (s: Screen) =>
       <div className="review">
         <button className="book-title" onClick={() => navigate('detail')}>{book.title}</button>
         <p className="author">{book.authors?.join(', ') || 'Autor desconhecido'}</p>
-        <Stars value={item.rating} />
+        {item.rating == null ? <span>Sem avaliação</span> : <Stars value={item.rating} />}
         <p className="review-text">{item.reviewText || 'Registrou esta leitura no diário.'}</p>
         {item.containsSpoilers && <span className="spoiler">Resenha contém spoilers</span>}
       </div>
@@ -442,10 +478,15 @@ function SearchResults({ results, loading, error, close, onBookSelect }: { resul
 }
 
 export default function App() {
+  const searchParams = new URLSearchParams(window.location.search)
+  const verificationToken = searchParams.get('verifyToken') ?? ''
+  const resetToken = searchParams.get('resetToken') ?? ''
+  const initialAuthMode: AuthMode = verificationToken ? 'verify' : resetToken ? 'reset' : 'login'
+  const authActionToken = verificationToken || resetToken
   const [screen, setScreen] = useState<Screen>('dashboard')
   const [logOpen, setLogOpen] = useState(false)
   const [user, setUser] = useState<User | null>(null)
-  const [authLoading, setAuthLoading] = useState(hasToken())
+  const [authLoading, setAuthLoading] = useState(true)
   const [searchState, setSearchState] = useState<{ results: Book[]; loading: boolean; error: string } | null>(null)
   const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [feedCursor, setFeedCursor] = useState<string>()
@@ -463,12 +504,24 @@ export default function App() {
   const [libraryError, setLibraryError] = useState('')
 
   useEffect(() => {
-    if (!hasToken()) return
-    getCurrentUser()
-      .then(setUser)
-      .catch(() => clearToken())
-      .finally(() => setAuthLoading(false))
-  }, [])
+    let active = true
+    async function initializeSession() {
+      try {
+        if (authActionToken) return
+        await restoreSession()
+        if (hasToken()) {
+          const currentUser = await getCurrentUser()
+          if (active) setUser(currentUser)
+        }
+      } catch {
+        clearToken()
+      } finally {
+        if (active) setAuthLoading(false)
+      }
+    }
+    void initializeSession()
+    return () => { active = false }
+  }, [authActionToken])
 
   async function loadFeed(mode = feedMode, append = false) {
     setFeedLoading(true)
@@ -554,7 +607,7 @@ export default function App() {
   }
 
   if (authLoading) return <main className="page" style={{ paddingTop: 96 }}><p>Carregando sua sessão...</p></main>
-  if (!user) return <AuthScreen onAuthenticated={result => setUser(result.user)} />
+  if (!user) return <AuthScreen initialMode={initialAuthMode} actionToken={authActionToken} onAuthenticated={result => setUser(result.user)} />
 
   return <div className="app">
     <Header screen={screen} navigate={navigate} openLog={() => setLogOpen(true)} onSearch={handleSearch} onLogout={() => { void handleLogout() }} />

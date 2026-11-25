@@ -8,16 +8,18 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"userId"`
-	Username string `json:"username"`
+	UserID    string `json:"userId"`
+	Username  string `json:"username"`
+	SessionID string `json:"sessionId"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(secret, userID, username string, expiration time.Duration) (string, error) {
+func GenerateToken(secret, userID, username, sessionID string, expiration time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		UserID: userID,
-		Username: username,
+		UserID:    userID,
+		Username:  username,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),

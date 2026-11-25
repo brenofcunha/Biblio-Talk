@@ -72,7 +72,31 @@ func (s *LogService) Create(ctx context.Context, userID, username string, req mo
 	return created, nil
 }
 
-func (s *LogService) Get(ctx context.Context, id string) (*models.Log, error) { return s.logs.GetByID(ctx, id) }
+func (s *LogService) Get(ctx context.Context, userID, id string) (*models.Log, error) {
+	log, err := s.logs.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if log.UserID != userID {
+		return nil, pgx.ErrNoRows
+	}
+	return log, nil
+}
+
+func (s *LogService) ensureDiaryPublic(ctx context.Context, logID string) error {
+	log, err := s.logs.GetByID(ctx, logID)
+	if err != nil {
+		return err
+	}
+	isPublic, err := s.users.CanViewByID(ctx, log.UserID, "diary")
+	if err != nil {
+		return err
+	}
+	if !isPublic {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
 
 func (s *LogService) Update(ctx context.Context, userID, username, logID string, req models.Log, readDate *string) error {
 	current, err := s.logs.GetByID(ctx, logID)
@@ -115,6 +139,9 @@ func (s *LogService) Delete(ctx context.Context, userID, username, logID string)
 }
 
 func (s *LogService) Like(ctx context.Context, userID, logID string) error {
+	if err := s.ensureDiaryPublic(ctx, logID); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -127,6 +154,9 @@ func (s *LogService) Like(ctx context.Context, userID, logID string) error {
 }
 
 func (s *LogService) Unlike(ctx context.Context, userID, logID string) error {
+	if err := s.ensureDiaryPublic(ctx, logID); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -142,10 +172,16 @@ func (s *LogService) AddComment(ctx context.Context, userID, logID, text string)
 	if len(text) == 0 {
 		return nil, errors.New("commentText é obrigatório")
 	}
+	if err := s.ensureDiaryPublic(ctx, logID); err != nil {
+		return nil, err
+	}
 	return s.logs.AddComment(ctx, userID, logID, text)
 }
 
 func (s *LogService) Comments(ctx context.Context, logID string) ([]models.Comment, error) {
+	if err := s.ensureDiaryPublic(ctx, logID); err != nil {
+		return nil, err
+	}
 	return s.logs.ListComments(ctx, logID)
 }
 

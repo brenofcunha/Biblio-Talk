@@ -55,8 +55,9 @@ catálogo inicial, feed social, paginação por cursor, perfil, estatísticas,
 listas, estantes, diário e registro de leituras.
 O feed também possui skeleton de carregamento, filtros, tentativa novamente e
 atualização manual.
-O logout revoga o JWT no backend; tokens expirados ou rejeitados são removidos
-automaticamente e a sessão do navegador usa `sessionStorage`.
+O login usa JWT de curta duração e refresh token rotacionado em cookie `HttpOnly`;
+as sessões e revogações são persistidas no PostgreSQL.
+Cadastro, recuperação de senha e confirmação de e-mail enviam links por SMTP.
 
 ## Arquitetura da API
 
@@ -88,9 +89,10 @@ Todas as rotas, exceto `/healthz`, usam o prefixo `/api/v1`.
 | Domínio | Endpoints |
 | --- | --- |
 | Saúde | `GET /healthz` |
-| Autenticação | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` |
+| Autenticação | Cadastro, login, renovação/logout de sessão, confirmação e recuperação de senha |
+| Usuários e perfil | Perfil público, privacidade, exportação/exclusão de dados, consentimentos, favoritos e desafios anuais |
 | Usuários | `GET /users/:username`, `PUT /users/me` |
-| Social | `POST/DELETE /users/:id/follow`, seguidores e seguindo |
+| Social | `POST/DELETE /users/:id/follow`, `GET /users/:id/followers` e `/following` |
 | Livros | `GET /books/search`, `GET /books/:id`, `GET /books/popular` |
 | Diário | `POST /logs`, `GET/PUT/DELETE /logs/:id` |
 | Interação | likes e comentários em `/logs/:id` |
@@ -154,12 +156,22 @@ A configuração local padrão é:
 PORT=3000
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/lume?sslmode=disable
 JWT_SECRET=troque-este-segredo-em-producao
-JWT_EXPIRATION=24h
+JWT_EXPIRATION=15m
+REFRESH_TOKEN_EXPIRATION=720h
+REFRESH_COOKIE_SECURE=false
 CORS_ALLOWED_ORIGIN=http://localhost:5173
+FRONTEND_URL=http://localhost:5173
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
 ```
 
 Open Library funciona sem chave. `GOOGLE_BOOKS_API_KEY` é opcional e só deve
-ser preenchida se o fallback do Google Books for necessário.
+ser preenchida se o fallback do Google Books for necessário. Configure o SMTP
+antes de cadastrar contas; em produção, use `REFRESH_COOKIE_SECURE=true` e um
+segredo JWT aleatório e forte.
 
 ### 3. Subir o PostgreSQL
 
@@ -239,7 +251,11 @@ curl -X POST http://localhost:3000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"clara","email":"clara@example.com","password":"secret123"}'
 
-curl -X POST http://localhost:3000/api/v1/auth/login \
+curl -X POST http://localhost:3000/api/v1/auth/email/verify \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<token recebido por e-mail>"}'
+
+curl -c cookies.txt -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"clara@example.com","password":"secret123"}'
 ```
